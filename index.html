@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#E4002B">
+<title>Coca-Cola Distributor Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800;900&display=swap" rel="stylesheet">
+<!-- Leaflet — مجاني 100% بدون API Key -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+/* ═══ Leaflet + OpenStreetMap — مجاني 100% بدون API Key ═══ */
+
+/* ═══ IndexedDB ═══ */
+var IDB=(function(){
+  var db=null;
+  function open(){
+    return new Promise(function(res,rej){
+      if(db){res(db);return;}
+      var r=indexedDB.open('CocaColaDB',1);
+      r.onerror=function(){rej(r.error);};
+      r.onsuccess=function(){db=r.result;res(db);};
+      r.onupgradeneeded=function(e){
+        var d=e.target.result;
+        if(!d.objectStoreNames.contains('customers')){
+          var cs=d.createObjectStore('customers',{keyPath:'id',autoIncrement:true});
+          cs.createIndex('code','code',{unique:true});
+        }
+        if(!d.objectStoreNames.contains('images'))
+          d.createObjectStore('images',{keyPath:'customerId'});
+      };
+    });
+  }
+  function addCustomer(data){
+    return open().then(function(d){
+      return new Promise(function(res,rej){
+        var r=d.transaction('customers','readwrite').objectStore('customers').add(data);
+        r.onsuccess=function(){res(r.result);};r.onerror=function(){rej(r.error);};
+      });
+    });
+  }
+  function findByCodes(codes){
+    return open().catch(function(err){
+      // FIX 7: معالجة فشل فتح قاعدة البيانات
+      throw new Error('فشل فتح قاعدة البيانات: '+err.message);
+    }).then(function(d){
+      return new Promise(function(res,rej){
+        try{
+          var idx=d.transaction('customers','readonly').objectStore('customers').index('code');
+          var map={},done=0;
+          if(!codes.length){res(map);return;}
+          codes.forEach(function(c){
+            var r=idx.get(c);
+            r.onsuccess=function(){if(r.result)map[c]=r.result;if(++done===codes.length)res(map);};
+            r.onerror=function(e){
+              console.warn('IDB get error for code',c,e);
+              if(++done===codes.length)res(map);
+            };
+          });
+        }catch(ex){
+          rej(new Error('خطأ في الاستعلام: مساحة التخزين قد تكون ممتلئة'));
+        }
+      });
+    });
+  }
+  function saveImage(id,b64){
+    return open().then(function(d){
+      return new Promise(function(res,rej){
+        var r=d.transaction('images','readwrite').objectStore('images').put({customerId:id,data:b64});
+        r.onsuccess=function(){res();};r.onerror=function(){rej(r.error);};
+      });
+    });
+  }
+  function getImage(id){
+    return open().then(function(d){
+      return new Promise(function(res,rej){
+        var r=d.transaction('images','readonly').objectStore('images').get(id);
+        r.onsuccess=function(){res(r.result?r.result.data:null);};r.onerror=function(){rej(r.error);};
+      });
+    });
+  }
+  function saveSession(data){
+    try{localStorage.setItem('coca_session',JSON.stringify(data));}catch(e){}
+  }
+  function loadSession(){
+    try{var d=localStorage.getItem('coca_session');return d?JSON.parse(d):null;}catch(e){return null;}
+  }
+  function clearSession(){
+    try{localStorage.removeItem('coca_session');}catch(e){}
+  }
+  function updateCustomer(id,data){
+    return open().then(function(d){
+      return new Promise(function(res,rej){
+        // نجيب السجل القديم أولاً ونحدّثه
+        var tx=d.transaction('customers','readwrite');
+        var store=tx.objectStore('customers');
+        var getReq=store.get(id);
+        getReq.onsuccess=function(){
+          var old=getReq.result;
+          if(!old){rej(new Error('not found'));return;}
+          var updated=Object.assign({},old,data,{id:id});
+          var putReq=store.put(updated);
+          putReq.onsuccess=function(){res();};
+          putReq.onerror=function(){rej(putReq.error);};
+        };
+        getReq.onerror=function(){rej(getReq.error);};
+      });
+    });
+  }
+  return{addCustomer,updateCustomer,findByCodes,saveImage,getImage,saveSession,loadSession,clearSession};
+})();
+
+/* ══ Bootstrap: دوال تُحتاج قبل تحميل باقي الكود ══ */
+var isDark=false;
+function toggleDark(){
+  isDark=!isDark;
+  document.documentElement.setAttribute('data-theme',isDark?'dark':'light');
+  var ic=isDark?'🌙':'☀️';
+  ['darkIcon','dIcon2','dIcon3'].forEach(function(id){var e=document.getElementById(id);if(e)e.textContent=ic;});
+  var tl=document.getElementById('togLbl');if(tl)tl.textContent=isDark?'وضع داكن':'وضع عادي';
+  var tr=document.getElementById('togTrack'),th=document.getElementById('togThumb');
+  if(tr)isDark?tr.classList.add('on'):tr.classList.remove('on');
+  if(th)isDark?th.classList.add('on'):th.classList.remove('on');
+  try{localStorage.setItem('dark',isDark?'1':'0');}catch(e){}
+}
+(function(){try{if(localStorage.getItem('dark')==='1')toggleDark();}catch(e){}})();
+</script>
+<style>
+/* ══ CONSTANTS ══ */
+:root{
+  --cart-m:300; /* مسافة العربة: 300 متر */
+  --geo-m:500;  /* مسافة Geofence: 500 متر */
+  --bg:#f5f5f5;--bg2:#fff;--card:#fff;--border:#eee;--border2:#e0e0e0;
+  --text:#111;--text2:#444;--text3:#888;
+  --input-bg:#f8f8f8;--input-border:#eee;
+  --sheet:#fff;--sheet-handle:rgba(0,0,0,.1);
+  --sec-line:rgba(228,0,43,.15);
+  --code-border:rgba(228,0,43,.28);--code-bg:#fff8f8;
+  --dbg:#0d0d0d;--dbg2:#1a1a1a;--dbg3:#111;
+  --dtext:#ddd;--dtext2:#888;--dtext3:#444;
+  --dborder:#222;--dborder2:#2a2a2a;
+}
+[data-theme="dark"]{
+  --bg:#0f0000;--bg2:#180003;--card:#180003;--border:#360010;--border2:#2a000a;
+  --text:#f0f0f0;--text2:#ccc;--text3:#666;
+  --input-bg:#1e0004;--input-border:#360010;
+  --sheet:#130000;--sheet-handle:rgba(255,255,255,.1);
+  --sec-line:rgba(228,0,43,.2);
+  --code-border:rgba(255,51,85,.35);--code-bg:#200005;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;font-family:'Cairo',sans-serif;background:#0a0a0a;overflow:hidden;-webkit-font-smoothing:antialiased;}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;transition:transform .32s cubic-bezier(.4,0,.2,1),opacity .32s;will-change:transform;overflow:hidden;}
+.screen.active{transform:translateX(0);opacity:1;pointer-events:all;z-index:10;}
+.screen.left{transform:translateX(-100%);opacity:0;pointer-events:none;z-index:5;}
+.screen.right{transform:translateX(100%);opacity:0;pointer-events:none;z-index:5;}
+.screen.below{transform:translateY(100%);opacity:0;pointer-events:none;z-index:5;}
+/* HEADER */
+.hdr{flex-shrink:0;background:linear-gradient(135deg,#E4002B,#8a0012);display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top,16px)+10px) 16px 12px;position:relative;overflow:hidden;}
+.hdr::before{content:'';position:absolute;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,.07);filter:blur(40px);top:-80px;right:-50px;pointer-events:none;}
+.hdr-back{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.18);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;color:#fff;flex-shrink:0;}
+.hdr-back:active{background:rgba(255,255,255,.3);}
+.hdr-title{font-size:18px;font-weight:800;color:#fff;flex:1;}
+.hdr-logo{height:28px;filter:brightness(0) invert(1);}
+.dark-tog{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.18);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;flex-shrink:0;}
+/* HOME */
+#home{background:linear-gradient(160deg,#E4002B 0%,#9a0016 40%,#540008 100%);}
+[data-theme="dark"] #home{background:linear-gradient(160deg,#1e0005 0%,#0d0000 50%,#060606 100%);}
+.blobs{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
+.bl{position:absolute;border-radius:50%;filter:blur(70px);}
+.bl1{width:60vw;height:60vw;background:rgba(228,0,43,.38);top:-15vw;left:-15vw;animation:bm1 11s ease-in-out infinite;}
+.bl2{width:45vw;height:45vw;background:rgba(170,0,25,.28);top:20vw;right:-12vw;animation:bm2 13s ease-in-out infinite;}
+.bl3{width:35vw;height:35vw;background:rgba(255,40,60,.15);top:55vw;left:5vw;animation:bm3 8s ease-in-out infinite;}
+@keyframes bm1{0%,100%{transform:translate(0,0)}50%{transform:translate(3vw,2vw) scale(1.07)}}
+@keyframes bm2{0%,100%{transform:translate(0,0)}50%{transform:translate(-2vw,3vw)}}
+@keyframes bm3{0%,100%{transform:translate(0,0)}50%{transform:translate(1vw,-2vw) scale(1.1)}}
+.bubs{position:absolute;inset:0;pointer-events:none;}
+.bub{position:absolute;border-radius:50%;background:rgba(255,255,255,.14);animation:rise linear infinite;}
+@keyframes rise{0%{transform:translateY(0);opacity:.14}100%{transform:translateY(-80vh);opacity:0}}
+.home-status-bar{height:calc(env(safe-area-inset-top,16px)+30px);display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 8px;position:relative;z-index:10;flex-shrink:0;}
+.home-time{font-size:13px;font-weight:700;color:rgba(255,255,255,.92);}
+.home-icons{display:flex;gap:5px;align-items:center;font-size:12px;color:rgba(255,255,255,.85);}
+.home-dark-tog{position:absolute;top:calc(env(safe-area-inset-top,16px)+6px);left:50%;transform:translateX(-50%);background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);border-radius:60px;padding:5px 12px 5px 9px;display:flex;align-items:center;gap:6px;cursor:pointer;backdrop-filter:blur(14px);z-index:20;user-select:none;}
+.tog-track{width:34px;height:18px;background:rgba(255,255,255,.2);border-radius:20px;position:relative;transition:background .3s;}
+.tog-track.on{background:rgba(255,255,255,.44);}
+.tog-thumb{position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .28s cubic-bezier(.34,1.56,.64,1);}
+.tog-thumb.on{left:18px;}
+.tog-lbl{font-size:11px;font-weight:700;color:rgba(255,255,255,.9);white-space:nowrap;}
+.home-content{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;position:relative;z-index:2;}
+.logo-card{width:100%;max-width:420px;background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.22);border-radius:28px;padding:clamp(20px,5vw,36px);text-align:center;backdrop-filter:blur(20px);box-shadow:0 24px 56px rgba(0,0,0,.38),inset 0 1.5px 0 rgba(255,255,255,.2);position:relative;overflow:hidden;animation:cardIn .8s cubic-bezier(.34,1.56,.64,1) .1s both;}
+@keyframes cardIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
+.logo-card::before{content:'';position:absolute;top:-50%;left:-72%;width:50%;height:200%;background:linear-gradient(108deg,transparent 40%,rgba(255,255,255,.14) 50%,transparent 60%);animation:shine 6s ease-in-out infinite 1s;}
+@keyframes shine{0%{left:-72%}40%,100%{left:122%}}
+.logo-img{display:flex;justify-content:center;margin-bottom:5px;animation:lf 4s ease-in-out infinite;}
+@keyframes lf{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.logo-img img{width:clamp(160px,50vw,240px);height:auto;filter:brightness(0) invert(1);}
+.wave{display:block;margin:4px auto 10px;}
+.divrow{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.divline{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);}
+.divstars{font-size:9px;color:rgba(255,255,255,.75);letter-spacing:5px;}
+.sub-tag{font-size:clamp(10px,3vw,12px);font-weight:700;letter-spacing:4px;text-transform:uppercase;color:rgba(255,255,255,.84);}
+.home-btns{width:100%;background:var(--sheet);border-radius:32px 32px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));flex-shrink:0;box-shadow:0 -10px 40px rgba(0,0,0,.15);animation:slideUp .7s cubic-bezier(.34,1.1,.64,1) .2s both;align-self:center;width:100%;transition:background .3s;}
+@keyframes slideUp{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
+.hdl{width:36px;height:4px;border-radius:10px;background:var(--sheet-handle);margin:0 auto 18px;}
+.sec-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+.sec-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(228,0,43,.25),transparent);}
+.sec-txt{font-size:10px;font-weight:700;letter-spacing:3px;color:#E4002B;text-transform:uppercase;}
+.btn-red{background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;border:none;border-radius:16px;width:100%;height:clamp(54px,14vw,62px);margin-bottom:12px;font-family:'Cairo',sans-serif;font-size:clamp(15px,4vw,17px);font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;box-shadow:0 7px 22px rgba(228,0,43,.42),inset 0 1px 0 rgba(255,255,255,.18);position:relative;overflow:hidden;}
+.btn-red::after{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,rgba(255,255,255,.12),transparent 55%);pointer-events:none;}
+.btn-red:active{transform:scale(.97);}
+.btn-out{background:transparent;color:#E4002B;border:2.5px solid #E4002B;border-radius:16px;width:100%;height:clamp(54px,14vw,62px);font-family:'Cairo',sans-serif;font-size:clamp(15px,4vw,17px);font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;}
+.btn-out:active{background:rgba(228,0,43,.06);transform:scale(.97);}
+.ibx{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.btn-red .ibx{background:rgba(255,255,255,.2);}
+.btn-out .ibx{background:rgba(228,0,43,.1);}
+.spark-note{text-align:center;font-size:11px;font-weight:600;color:var(--text3);margin-top:10px;display:flex;align-items:center;justify-content:center;gap:5px;}
+.green-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;}
+/* REGISTER */
+#register{background:var(--bg);transition:background .3s;}
+.reg-scroll{flex:1;overflow-y:auto;padding:14px 16px calc(24px + env(safe-area-inset-bottom,0px));scrollbar-width:none;}
+.reg-scroll::-webkit-scrollbar{display:none;}
+.fcard{background:var(--card);border-radius:22px;padding:18px 16px;box-shadow:0 4px 24px rgba(0,0,0,.06);border:1px solid var(--border);margin-bottom:12px;transition:background .3s,border .3s;}
+[data-theme="dark"] .fcard{box-shadow:0 4px 24px rgba(0,0,0,.38);}
+.fsec{display:flex;align-items:center;gap:8px;margin:16px 0 12px;}
+.fsec-line{flex:1;height:1px;background:var(--sec-line);}
+.fsec-lbl{font-size:10px;font-weight:700;letter-spacing:2px;color:#E4002B;text-transform:uppercase;white-space:nowrap;}
+.fg{margin-bottom:13px;}
+.flbl{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px;display:flex;align-items:center;gap:5px;}
+.flbl em{font-size:14px;font-style:normal;}
+.req{display:inline-flex;background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;font-size:9px;font-weight:800;border-radius:20px;padding:2px 8px;margin-right:4px;}
+.opt{display:inline-flex;background:rgba(150,150,150,.1);color:var(--text3);font-size:9px;font-weight:700;border-radius:20px;padding:2px 8px;margin-right:4px;}
+.inp{width:100%;background:var(--input-bg);border:2px solid var(--input-border);border-radius:13px;padding:13px 15px;font-family:'Cairo',sans-serif;font-size:clamp(14px,4vw,16px);font-weight:600;color:var(--text);outline:none;transition:border .2s,background .3s,color .3s;-webkit-appearance:none;}
+.inp::placeholder{color:rgba(150,150,150,.55);font-weight:500;}
+.inp:focus{border-color:#E4002B;box-shadow:0 0 0 3px rgba(228,0,43,.09);}
+.code-inp{width:100%;background:var(--code-bg);border:2.5px solid var(--code-border);border-radius:13px;padding:15px 16px;font-family:'Cairo',sans-serif;font-size:clamp(20px,6vw,26px);font-weight:900;color:#E4002B;letter-spacing:3px;outline:none;transition:all .22s;-webkit-appearance:none;text-align:center;}
+.code-inp.green-state{border-color:#22c55e!important;color:#22c55e!important;background:rgba(34,197,94,.07)!important;box-shadow:0 0 0 5px rgba(34,197,94,.15)!important;}
+.code-inp.error{border-color:#ef4444;}
+.phwrap{position:relative;display:flex;align-items:center;}
+.phpre{position:absolute;right:14px;font-size:14px;font-weight:700;color:#E4002B;pointer-events:none;}
+.phwrap .inp{padding-right:54px;}
+textarea.inp{resize:none;min-height:70px;line-height:1.6;}
+.photo-up{width:100%;border:2px dashed rgba(228,0,43,.22);border-radius:13px;padding:16px;display:flex;flex-direction:column;align-items:center;cursor:pointer;background:rgba(228,0,43,.03);position:relative;overflow:hidden;}
+.photo-up input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0;}
+.pu-ico{font-size:28px;margin-bottom:4px;}
+.pu-lbl{font-size:13px;font-weight:700;color:var(--text3);}
+.photo-prev{width:100%;border-radius:12px;overflow:hidden;position:relative;display:none;}
+.photo-prev img{width:100%;height:140px;object-fit:cover;display:block;}
+.rm-ph{position:absolute;top:7px;left:7px;background:rgba(0,0,0,.58);color:#fff;border:none;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;}
+.locc{background:rgba(228,0,43,.04);border:1.5px solid rgba(228,0,43,.14);border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:12px;transition:all .28s;}
+.locc.pulsing{border-color:rgba(228,0,43,.48);animation:lp 1.5s ease-in-out infinite;}
+.locc.done{border-color:#22c55e;background:rgba(34,197,94,.07);}
+@keyframes lp{0%,100%{box-shadow:0 0 0 0 rgba(228,0,43,.18)}50%{box-shadow:0 0 0 7px rgba(228,0,43,0)}}
+.locico{width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,#E4002B,#b3001c);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.locico.spin{animation:spin .9s linear infinite;}
+.locico.ok{background:linear-gradient(135deg,#16a34a,#148038);}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.locsub{font-size:11px;color:var(--text3);margin-top:2px;}
+.locsub.ok{color:#22c55e;font-weight:600;}
+.locsub.err{color:#ef4444;font-weight:600;}
+.reg-btn{width:100%;height:clamp(54px,14vw,62px);background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;border:none;border-radius:16px;font-family:'Cairo',sans-serif;font-size:clamp(15px,4vw,17px);font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;box-shadow:0 9px 28px rgba(228,0,43,.42);position:relative;overflow:hidden;}
+.reg-btn:active{transform:scale(.97);}
+.reg-btn:disabled{opacity:.5;cursor:not-allowed;}
+.spinw{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.32);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;display:none;}
+.sov{position:absolute;inset:0;background:linear-gradient(155deg,#E4002B,#7d0011);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;opacity:0;pointer-events:none;transition:opacity .38s;padding:clamp(20px,5vw,36px);}
+.sov.show{opacity:1;pointer-events:all;}
+.sov-sc{width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;font-size:44px;margin-bottom:16px;}
+.sov h2{font-size:24px;font-weight:900;color:#fff;margin-bottom:4px;}
+.sov p{font-size:13px;color:rgba(255,255,255,.78);}
+.sinfo{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.18);border-radius:16px;padding:13px 18px;margin-top:16px;width:100%;text-align:right;}
+.srow{display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px;color:rgba(255,255,255,.78);}
+.srow:last-child{margin-bottom:0;}
+.sval{font-weight:700;color:#fff;margin-right:6px;}
+.sbk{margin-top:20px;background:rgba(255,255,255,.17);border:1.5px solid rgba(255,255,255,.28);border-radius:13px;padding:10px 26px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;color:#fff;cursor:pointer;}
+/* DISTRIB */
+#distrib{background:var(--dbg);transition:background .3s;}
+.stats-bar{background:var(--dbg2);border-bottom:1px solid var(--dborder);padding:8px 12px;display:flex;gap:7px;flex-shrink:0;}
+.stat-box{flex:1;background:var(--dbg3);border-radius:9px;padding:8px 5px;text-align:center;border:1px solid var(--dborder);}
+.stat-box.g{border-color:rgba(34,197,94,.28);}
+.stat-box.r{border-color:rgba(239,68,68,.28);}
+.stat-box.y{border-color:rgba(245,158,11,.28);}
+.stat-num{font-size:clamp(17px,5vw,21px);font-weight:900;color:var(--dtext);line-height:1;}
+.stat-box.g .stat-num{color:#22c55e;}
+.stat-box.r .stat-num{color:#ef4444;}
+.stat-box.y .stat-num{color:#f59e0b;}
+.stat-lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--dtext3);margin-top:2px;}
+.dpanel{flex:1;overflow-y:auto;background:var(--dbg3);padding:12px 13px;scrollbar-width:none;display:flex;flex-direction:column;gap:10px;}
+.dpanel::-webkit-scrollbar{display:none;}
+.sec-hdr{display:flex;align-items:center;gap:7px;margin-bottom:1px;}
+.sec-hdr-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(228,0,43,.22),transparent);}
+.sec-hdr-lbl{font-size:10px;font-weight:700;letter-spacing:2px;color:#E4002B;text-transform:uppercase;white-space:nowrap;}
+.manual-main{background:rgba(228,0,43,.06);border:2px solid #E4002B;border-radius:16px;padding:14px 14px 12px;box-shadow:0 0 0 3px rgba(228,0,43,.1),0 6px 20px rgba(228,0,43,.15);}
+.mm-lbl{font-size:11px;font-weight:800;letter-spacing:2px;color:#E4002B;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:7px;}
+.mm-lbl::before{content:'✏️';font-size:14px;}
+.man-row{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
+.man-inp{flex:1;background:#0e0000;border:2.5px solid #E4002B;border-radius:12px;padding:14px 16px;font-family:'Cairo',sans-serif;font-size:clamp(22px,6vw,28px);font-weight:900;color:#E4002B;letter-spacing:4px;outline:none;text-align:center;-webkit-appearance:none;transition:all .2s;}
+.man-inp.valid{border-color:#22c55e!important;color:#22c55e!important;background:#001a06!important;box-shadow:0 0 0 4px rgba(34,197,94,.2)!important;animation:gP .4s ease both;}
+@keyframes gP{0%{transform:scale(1)}50%{transform:scale(1.03)}100%{transform:scale(1)}}
+.man-add{width:clamp(48px,13vw,56px);height:clamp(48px,13vw,56px);flex-shrink:0;background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;border:none;border-radius:12px;font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.man-add:active{transform:scale(.93);}
+.dot-progress{display:flex;justify-content:center;gap:5px;margin-bottom:8px;height:16px;align-items:center;}
+.dot{width:10px;height:10px;border-radius:50%;background:rgba(228,0,43,.25);border:1.5px solid rgba(228,0,43,.4);transition:all .15s;flex-shrink:0;}
+.dot.filled{background:#E4002B;border-color:#E4002B;transform:scale(1.2);}
+.dot.all-green{background:#22c55e;border-color:#22c55e;}
+.man-hint{font-size:11px;font-weight:600;color:var(--dtext3);text-align:center;margin-bottom:8px;min-height:16px;}
+.man-hint.ok{color:#22c55e;font-weight:800;}
+.man-hint.warn{color:#f59e0b;}
+.chips-wrap{display:flex;flex-wrap:wrap;gap:6px;max-height:110px;overflow-y:auto;scrollbar-width:none;}
+.chips-wrap::-webkit-scrollbar{display:none;}
+.chip{display:flex;align-items:center;gap:4px;border-radius:20px;padding:4px 10px 4px 6px;font-size:12px;font-weight:800;letter-spacing:1px;}
+.chip.pending{background:rgba(228,0,43,.12);border:1.5px solid rgba(228,0,43,.3);color:#ff6680;}
+.chip.found{background:rgba(34,197,94,.12);border:1.5px solid rgba(34,197,94,.3);color:#22c55e;}
+.chip.missing{background:rgba(100,100,100,.1);border:1.5px solid #2a2a2a;color:#555;}
+.chip-rm{width:15px;height:15px;border-radius:50%;background:rgba(255,255,255,.1);border:none;color:#666;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.chip-cnt{font-size:10px;font-weight:700;color:var(--dtext3);text-align:center;margin-top:5px;}
+.cmp-btn{width:100%;height:48px;margin-top:8px;background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;border:none;border-radius:12px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;position:relative;overflow:hidden;}
+.cmp-btn:active{transform:scale(.97);}
+.cmp-btn:disabled{opacity:.4;cursor:not-allowed;}
+.up-area{width:100%;border:2px dashed rgba(228,0,43,.25);border-radius:13px;padding:16px;display:flex;flex-direction:column;align-items:center;cursor:pointer;background:rgba(228,0,43,.03);position:relative;overflow:hidden;}
+.up-area input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0;}
+.up-ico{font-size:28px;margin-bottom:3px;}
+.up-lbl{font-size:13px;font-weight:700;color:var(--dtext2);}
+.up-sub{font-size:10px;color:var(--dtext3);margin-top:2px;}
+.pg-strip{display:flex;gap:7px;overflow-x:auto;padding-bottom:3px;scrollbar-width:none;}
+.pg-strip::-webkit-scrollbar{display:none;}
+.pg-thumb{flex-shrink:0;width:clamp(56px,15vw,68px);position:relative;}
+.pg-thumb img{width:100%;height:clamp(75px,20vw,90px);object-fit:cover;border-radius:8px;border:2px solid var(--dborder2);display:block;}
+.pg-badge{position:absolute;top:-4px;right:-4px;width:17px;height:17px;border-radius:50%;background:#E4002B;color:#fff;font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+.pg-count{position:absolute;bottom:2px;left:0;right:0;text-align:center;font-size:8px;font-weight:700;color:#aaa;}
+.add-pg-btn{flex-shrink:0;width:clamp(56px,15vw,68px);height:clamp(75px,20vw,90px);border:2px dashed rgba(228,0,43,.28);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;background:rgba(228,0,43,.035);font-size:18px;color:rgba(228,0,43,.5);position:relative;overflow:hidden;}
+.add-pg-btn input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0;}
+.add-pg-lbl{font-size:8px;font-weight:700;color:var(--dtext3);margin-top:2px;}
+.proc-btn{width:100%;height:48px;background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;border:none;border-radius:11px;font-family:'Cairo',sans-serif;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;position:relative;overflow:hidden;}
+.proc-btn:active{transform:scale(.97);}
+.proc-btn:disabled{opacity:.38;cursor:not-allowed;}
+.prog-wrap{background:var(--dbg2);border-radius:11px;padding:12px 13px;display:none;}
+.prog-row{display:flex;justify-content:space-between;margin-bottom:5px;}
+.prog-lbl{font-size:11px;font-weight:700;color:var(--dtext2);}
+.prog-pct{font-size:11px;font-weight:800;color:#E4002B;}
+.prog-bar{width:100%;height:5px;background:var(--dborder);border-radius:10px;overflow:hidden;}
+.prog-fill{height:100%;background:linear-gradient(90deg,#E4002B,#ff5577);border-radius:10px;width:0%;transition:width .28s;}
+.prog-step{font-size:10px;color:var(--dtext3);margin-top:4px;}
+.fab-row{
+  position:fixed;bottom:0;left:0;right:0;
+  display:none;gap:0;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  z-index:100;
+  box-shadow:0 -4px 20px rgba(0,0,0,.3);
+}
+.fab-row.show{display:flex;}
+.start-fab{
+  flex:1;border:none;
+  height:clamp(54px,14vw,64px);
+  font-family:'Cairo',sans-serif;
+  font-size:clamp(14px,3.8vw,16px);
+  font-weight:800;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  cursor:pointer;
+  background:linear-gradient(135deg,#22c55e,#16a34a);
+  color:#fff;
+}
+.start-fab.red{background:linear-gradient(135deg,#E4002B,#b3001c);}
+.start-fab:active{opacity:.85;}
+/* مسافة لمنع محتوى dpanel من الاختباء خلف fab-row */
+.dpanel-spacer{height:80px;flex-shrink:0;}
+/* NAV */
+#navscreen{background:var(--dbg);flex-direction:column;}
+.nav-hdr{flex-shrink:0;background:linear-gradient(135deg,#0a2e00,#091a05);display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top,16px)+8px) 16px 10px;border-bottom:1px solid #1a2e1a;}
+.nav-hdr-back{width:36px;height:36px;border-radius:50%;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:#22c55e;}
+.nav-hdr-title{font-size:16px;font-weight:800;color:#fff;flex:1;}
+.nav-hdr-badge{background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:800;color:#22c55e;}
+.map-top{flex-shrink:0;height:35vh;min-height:200px;position:relative;background:#1a2a1a;overflow:hidden;}
+#gmap{width:100%;height:100%;min-height:200px;z-index:0;}
+/* Leaflet overrides */
+.leaflet-container{background:#1a2a1a;font-family:'Cairo',sans-serif;}
+.leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.35);}
+.leaflet-popup-content{margin:10px 14px;font-size:13px;line-height:1.5;}
+.leaflet-control-zoom{border:none!important;box-shadow:0 2px 10px rgba(0,0,0,.3)!important;}
+.leaflet-control-zoom a{background:rgba(20,20,20,.85)!important;color:#fff!important;border:none!important;border-radius:8px!important;font-size:16px!important;}
+.leaflet-tile-pane{filter:brightness(.92) saturate(.85);}
+@keyframes truckPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.map-ctrl-row{position:absolute;bottom:8px;right:8px;display:flex;gap:6px;z-index:5;}
+.map-btn{background:rgba(0,0,0,.72);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.18);border-radius:20px;padding:6px 14px;font-family:'Cairo',sans-serif;font-size:11px;font-weight:800;color:#fff;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;}
+.map-btn.green{background:linear-gradient(135deg,#22c55e,#16a34a);border-color:transparent;}
+.map-btn:active{transform:scale(.96);}
+/* بانر العربة — 300 متر */
+.cart-banner{background:linear-gradient(135deg,#1a3a00,#0d2200);border-bottom:1px solid rgba(34,197,94,.2);padding:7px 14px;display:none;align-items:center;gap:10px;flex-shrink:0;}
+.cart-banner.show{display:flex;}
+.cart-banner-txt{font-size:12px;font-weight:800;color:#22c55e;flex:1;}
+.cart-banner-sub{font-size:10px;color:rgba(34,197,94,.65);}
+/* قائمة الزبائن */
+.nav-list-wrap{flex:1;overflow-y:auto;scrollbar-width:none;padding:6px 10px 12px;}
+.nav-list-wrap::-webkit-scrollbar{display:none;}
+/* بطاقة زبون */
+.nci{background:var(--dbg2);border-radius:16px;border:1px solid var(--dborder);overflow:hidden;margin-bottom:8px;transition:border .2s,opacity .2s;}
+.nci.st-locked{border-color:rgba(239,68,68,.4);}
+.nci.st-notpaid{border-color:rgba(245,158,11,.4);}
+.nci.pushed{opacity:.75;}
+.nci-bar{height:3px;background:var(--dborder);}
+.nci.st-locked .nci-bar{background:linear-gradient(90deg,#ef4444,#b91c1c);}
+.nci.st-notpaid .nci-bar{background:linear-gradient(90deg,#f59e0b,#d97706);}
+.nci-main{display:flex;align-items:center;padding:10px 12px;gap:10px;}
+.nci-img{width:46px;height:46px;border-radius:11px;object-fit:cover;flex-shrink:0;cursor:pointer;border:1.5px solid var(--dborder2);}
+.nci-ph{width:46px;height:46px;border-radius:11px;background:var(--dbg3);border:1.5px solid var(--dborder2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.nci-info{flex:1;min-width:0;}
+.nci-code{font-size:15px;font-weight:900;letter-spacing:1.5px;font-family:monospace;color:var(--dtext);}
+.nci-name{font-size:11px;color:var(--dtext3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.nci-rt{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;}
+.dist-badge{font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;white-space:nowrap;}
+.dist-badge.close{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.2);}
+.dist-badge.mid{background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.2);}
+.dist-badge.far{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.2);}
+.dist-badge.unknown{background:rgba(80,80,80,.12);color:var(--dtext3);border:1px solid var(--dborder);}
+.cart-chip{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.2);border-radius:20px;padding:2px 8px;font-size:10px;font-weight:800;color:#22c55e;}
+.st-chip{border-radius:20px;padding:2px 7px;font-size:10px;font-weight:800;}
+.st-chip.locked{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.2);}
+.st-chip.notpaid{background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.2);}
+/* ══ 3 أزرار — FIX 6: responsive للشاشات الصغيرة ══ */
+.nci-actions{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--dborder);}
+.act{height:42px;border:none;font-family:'Cairo',sans-serif;font-size:clamp(10px,2.8vw,12px);font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;padding:0 2px;white-space:nowrap;}
+.act:not(:last-child){border-left:1px solid var(--dborder);}
+.act-paid{background:rgba(34,197,94,.07);color:#22c55e;}
+.act-paid:active{background:rgba(34,197,94,.18);}
+.act-lock{background:rgba(239,68,68,.07);color:#ef4444;}
+.act-lock:active{background:rgba(239,68,68,.18);}
+.act-np{background:rgba(245,158,11,.07);color:#f59e0b;}
+.act-np:active{background:rgba(245,158,11,.18);}
+@media(max-width:360px){.act{font-size:10px;gap:2px;}.act span{display:none;}}
+.nav-empty{display:flex;flex-direction:column;align-items:center;padding:40px 14px;text-align:center;}
+.nav-empty-ico{font-size:40px;margin-bottom:8px;opacity:.3;}
+.nav-empty-txt{font-size:13px;color:var(--dtext3);font-weight:600;}
+/* NOT PAID SCREEN */
+#notpaidscreen{background:var(--dbg);}
+.np-scroll{flex:1;overflow-y:auto;padding:16px;scrollbar-width:none;}
+.np-scroll::-webkit-scrollbar{display:none;}
+.np-card{background:var(--dbg2);border-radius:18px;padding:18px;border:1px solid var(--dborder);margin-bottom:12px;}
+.np-title{font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:12px;display:flex;align-items:center;gap:7px;}
+.np-cust-box{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:12px;padding:12px;margin-bottom:14px;}
+.np-code{font-size:20px;font-weight:900;color:#f59e0b;font-family:monospace;letter-spacing:2px;}
+.np-name{font-size:12px;color:var(--dtext3);margin-top:2px;}
+.np-lbl{font-size:10px;font-weight:800;letter-spacing:2px;color:var(--dtext3);text-transform:uppercase;margin-bottom:8px;}
+.time-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;}
+.t-opt{background:var(--dbg3);border:1.5px solid var(--dborder2);border-radius:12px;padding:10px 6px;text-align:center;cursor:pointer;transition:all .15s;}
+.t-opt.on{border-color:#f59e0b;background:rgba(245,158,11,.1);}
+.t-opt:active{transform:scale(.96);}
+.t-min{font-size:18px;font-weight:900;color:var(--dtext);}
+.t-lbl{font-size:9px;font-weight:700;color:var(--dtext3);margin-top:2px;}
+.t-opt.on .t-min{color:#f59e0b;}
+.custom-inp{width:100%;background:var(--dbg3);border:1.5px solid var(--dborder2);border-radius:12px;padding:12px 14px;font-family:'Cairo',sans-serif;font-size:16px;font-weight:700;color:var(--dtext);outline:none;text-align:center;-webkit-appearance:none;margin-bottom:14px;}
+.custom-inp:focus{border-color:#f59e0b;}
+.np-note{width:100%;background:var(--dbg3);border:1.5px solid var(--dborder2);border-radius:12px;padding:12px 14px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:600;color:var(--dtext);outline:none;resize:none;min-height:60px;}
+.np-note:focus{border-color:#f59e0b;}
+.np-confirm{width:100%;height:52px;background:linear-gradient(135deg,#d97706,#b45309);color:#fff;border:none;border-radius:14px;font-family:'Cairo',sans-serif;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;}
+.np-confirm:active{transform:scale(.97);}
+/* IMAGE MODAL */
+.img-modal{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;}
+.img-modal.show{opacity:1;pointer-events:all;}
+.img-modal img{max-width:95vw;max-height:85vh;border-radius:14px;object-fit:contain;}
+.img-modal-close{position:absolute;top:20px;left:20px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+/* GEOFENCE ALERT */
+.geo-alert{position:fixed;top:0;left:0;right:0;z-index:500;transform:translateY(-100%);transition:transform .4s cubic-bezier(.34,1.3,.64,1);}
+.geo-alert.show{transform:translateY(0);}
+.geo-inner{margin:8px 12px;background:linear-gradient(135deg,#1a1a00,#2a1500);border:2px solid #f59e0b;border-radius:16px;padding:14px 16px;box-shadow:0 8px 28px rgba(245,158,11,.4);display:flex;align-items:center;gap:12px;}
+.geo-alert.geo-locked .geo-inner{background:linear-gradient(135deg,#1a0000,#2a0000);border-color:#ef4444;box-shadow:0 8px 28px rgba(239,68,68,.4);}
+.geo-ico{font-size:28px;flex-shrink:0;}
+.geo-txt{flex:1;}
+.geo-title{font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:2px;}
+.geo-alert.geo-locked .geo-title{color:#ef4444;}
+.geo-sub{font-size:11px;color:rgba(255,255,255,.7);}
+.geo-close{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);border:none;color:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+#etaBanner{display:none;}
+#etaBanner.show{display:flex!important;}
+/* ══ EDIT MODAL ══ */
+.edit-modal{position:fixed;inset:0;z-index:300;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .25s;}
+.edit-modal.show{opacity:1;pointer-events:all;}
+.edit-overlay{position:absolute;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);}
+.edit-sheet{position:absolute;bottom:0;left:0;right:0;background:var(--sheet);border-radius:24px 24px 0 0;padding:0 0 env(safe-area-inset-bottom,0px);max-height:92vh;overflow-y:auto;transform:translateY(100%);transition:transform .32s cubic-bezier(.34,1.1,.64,1);}
+.edit-modal.show .edit-sheet{transform:translateY(0);}
+.edit-sheet-hdl{width:36px;height:4px;border-radius:10px;background:var(--sheet-handle);margin:12px auto 16px;}
+.edit-sheet-hdr{display:flex;align-items:center;justify-content:space-between;padding:0 18px 14px;border-bottom:1px solid var(--border);}
+.edit-sheet-title{font-size:16px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:8px;}
+.edit-close{width:32px;height:32px;border-radius:50%;background:var(--bg3);border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);}
+.edit-body{padding:16px 18px 20px;}
+.edit-fg{margin-bottom:13px;}
+.edit-lbl{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px;}
+.edit-inp{width:100%;background:var(--input-bg);border:2px solid var(--input-border);border-radius:12px;padding:12px 14px;font-family:'Cairo',sans-serif;font-size:15px;font-weight:600;color:var(--text);outline:none;-webkit-appearance:none;}
+.edit-inp:focus{border-color:#E4002B;}
+.edit-photo-row{display:flex;gap:10px;align-items:center;}
+.edit-photo-prev{width:70px;height:70px;border-radius:12px;object-fit:cover;border:2px solid var(--border);flex-shrink:0;}
+.edit-photo-ph{width:70px;height:70px;border-radius:12px;background:var(--bg3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;}
+.edit-photo-btn{flex:1;background:rgba(228,0,43,.06);border:2px dashed rgba(228,0,43,.25);border-radius:12px;padding:12px;text-align:center;cursor:pointer;position:relative;overflow:hidden;}
+.edit-photo-btn input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.edit-photo-btn-lbl{font-size:12px;font-weight:700;color:#E4002B;}
+.edit-save-btn{width:100%;height:52px;background:linear-gradient(135deg,#E4002B,#b3001c);color:#fff;border:none;border-radius:14px;font-family:'Cairo',sans-serif;font-size:16px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px;}
+.edit-save-btn:active{transform:scale(.97);}
+.edit-save-btn:disabled{opacity:.5;}
+/* زر المفك في البطاقة */
+.edit-wrench{position:absolute;top:8px;left:10px;width:30px;height:30px;border-radius:8px;background:rgba(150,150,150,.12);border:1px solid rgba(150,150,150,.2);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;z-index:2;}
+.edit-wrench:active{background:rgba(150,150,150,.25);}
+.nci-main{position:relative;}
+
+/* SNACK */
+.snk{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:14px;right:14px;background:linear-gradient(135deg,#E4002B,#a2001a);color:#fff;padding:13px 16px;border-radius:13px;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700;text-align:right;transform:translateY(120px);transition:transform .4s cubic-bezier(.34,1.3,.64,1);z-index:1000;box-shadow:0 7px 24px rgba(228,0,43,.48);}
+.snk.g{background:linear-gradient(135deg,#16a34a,#138038);}
+.snk.y{background:linear-gradient(135deg,#d97706,#b45309);}
+.snk.show{transform:translateY(0);}
+</style>
+</head>
+<body>
+
+<!-- HOME -->
+<div class="screen active" id="home">
+  <div class="blobs"><div class="bl bl1"></div><div class="bl bl2"></div><div class="bl bl3"></div></div>
+  <div class="bubs" id="bubs"></div>
+  <div class="home-status-bar">
+    <div class="home-time" id="clk">9:41</div>
+    <div class="home-icons"><span>▲▲▲</span><span style="font-size:10px;font-weight:700">4G</span><span>🔋</span></div>
+  </div>
+  <div class="home-dark-tog" onclick="toggleDark()">
+    <span id="darkIcon" style="font-size:14px">☀️</span>
+    <div class="tog-track" id="togTrack"><div class="tog-thumb" id="togThumb"></div></div>
+    <span class="tog-lbl" id="togLbl">وضع عادي</span>
+  </div>
+  <div class="home-content">
+    <div class="logo-card">
+      <div class="logo-img">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" alt="Coca-Cola"
+          onerror="this.style.display='none';document.getElementById('lf1').style.display='block'">
+        <div id="lf1" style="font-family:Georgia,serif;font-size:clamp(36px,10vw,52px);font-weight:bold;font-style:italic;background:linear-gradient(135deg,#fff,#fff9c4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;display:none">Coca-Cola</div>
+      </div>
+      <svg class="wave" width="180" height="12" viewBox="0 0 180 12"><path d="M 8 9 Q 36 2 64 7 Q 90 12 116 6 Q 144 2 172 8" stroke="rgba(255,255,255,0.58)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <div class="divrow"><div class="divline"></div><span class="divstars">✦ ✦ ✦</span><div class="divline"></div></div>
+      <div class="sub-tag">Distributor Pro</div>
+    </div>
+  </div>
+  <div class="home-btns">
+    <div class="hdl"></div>
+    <div class="sec-row"><div class="sec-line"></div><span class="sec-txt">القائمة الرئيسية</span><div class="sec-line"></div></div>
+    <button class="btn-red" onclick="goTo('register','left')"><div class="ibx">👤</div>تسجيل الزبائن</button>
+    <button class="btn-out" onclick="goTo('distrib','left')"><div class="ibx">🚚</div>بدء عملية التوزيع</button>
+    <div class="spark-note"><div class="green-dot"></div> تخزين محلي 100% — بدون سحابة ✅</div>
+  </div>
+</div>
+
+<!-- REGISTER -->
+<div class="screen right" id="register">
+  <div class="hdr">
+    <button class="hdr-back" onclick="goTo('home','right')">←</button>
+    <span class="hdr-title">تسجيل زبون جديد</span>
+    <button class="dark-tog" onclick="toggleDark()"><span id="dIcon2">☀️</span></button>
+    <img class="hdr-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" onerror="this.style.display='none'" alt="">
+  </div>
+  <div class="reg-scroll">
+    <div class="fcard">
+      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">🔑 الكود</span><div class="fsec-line"></div></div>
+      <div class="fg">
+        <div class="flbl"><em>🔑</em> الكود الفريد <span class="req">إجباري</span></div>
+        <input class="code-inp" id="codeInp" type="tel" inputmode="numeric" maxlength="7" placeholder="1234567" oninput="onCodeInput(this)">
+        <div id="codeHint" style="font-size:11px;color:#aaa;margin-top:4px;text-align:center">أدخل كوداً فريداً</div>
+      </div>
+      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">📋 بيانات</span><div class="fsec-line"></div></div>
+      <div class="fg"><div class="flbl"><em>🧑</em> الاسم <span class="opt">اختياري</span></div><input class="inp" id="nmInp" type="text" placeholder="اسم الزبون أو المحل"></div>
+      <div class="fg"><div class="flbl"><em>📱</em> الهاتف <span class="opt">اختياري</span></div><div class="phwrap"><span class="phpre">+213</span><input class="inp" id="phInp" type="tel" inputmode="numeric" maxlength="10" placeholder="0xxxxxxxxx" oninput="this.value=this.value.replace(/\D/g,'')"></div></div>
+      <div class="fg">
+        <div class="flbl"><em>🏪</em> صورة الدكان <span class="opt">اختياري</span></div>
+        <div class="photo-up" id="puArea">
+          <input type="file" id="photoFile" accept="image/*" capture="environment" onchange="previewPhoto(this)">
+          <div class="pu-ico">📷</div>
+          <div class="pu-lbl">التقاط صورة — جودة كاملة بدون ضغط</div>
+        </div>
+        <div class="photo-prev" id="pprev"><img id="pimg" src="" alt=""><button class="rm-ph" onclick="removePhoto()">✕</button></div>
+      </div>
+      <div class="fg"><div class="flbl"><em>📝</em> ملاحظة <span class="opt">اختياري</span></div><textarea class="inp" id="ntInp" placeholder="أي ملاحظة..."></textarea></div>
+      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">📍 الموقع</span><div class="fsec-line"></div></div>
+      <div class="fg">
+        <div class="locc" id="lc" onclick="captureGPSNow()" style="cursor:pointer">
+          <div class="locico" id="li">📍</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:var(--text2)">اضغط هنا لتحديد موقعك الآن</div>
+            <div class="locsub" id="ls">سيُحفظ الموقع قبل إدخال البيانات</div>
+          </div>
+          <span style="font-size:11px;font-weight:800;color:#E4002B;background:rgba(228,0,43,.09);border-radius:8px;padding:3px 9px;flex-shrink:0">▶ اضغط</span>
+        </div>
+      </div>
+      <button class="reg-btn" id="rb" onclick="doRegister()"><div class="spinw" id="sw"></div><span id="rbt">📥 تسجيل الزبون</span></button>
+    </div>
+  </div>
+  <div class="sov" id="sovReg">
+    <div class="sov-sc">✅</div><h2>تم التسجيل!</h2><p>تم الحفظ محلياً 💾</p>
+    <div class="sinfo" id="sinfoReg"></div>
+    <button class="sbk" onclick="afterRegOk()">↩ العودة</button>
+  </div>
+</div>
+
+<!-- DISTRIB -->
+<div class="screen right" id="distrib">
+  <div class="hdr">
+    <button class="hdr-back" onclick="goTo('home','right')">←</button>
+    <span class="hdr-title">ورقة التوزيع</span>
+    <button class="dark-tog" onclick="toggleDark()"><span id="dIcon3">☀️</span></button>
+    <img class="hdr-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" onerror="this.style.display='none'" alt="">
+  </div>
+  <div class="stats-bar">
+    <div class="stat-box"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">الكل</div></div>
+    <div class="stat-box g"><div class="stat-num" id="stFound">0</div><div class="stat-lbl">موجود</div></div>
+    <div class="stat-box r"><div class="stat-num" id="stMissing">0</div><div class="stat-lbl">غائب</div></div>
+    <div class="stat-box y"><div class="stat-num" id="stPages">0</div><div class="stat-lbl">ورقة</div></div>
+  </div>
+  <div class="dpanel" id="dpanel">
+    <div>
+      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">✏️ إدخال الأكواد</span><div class="sec-hdr-line"></div></div>
+      <div class="manual-main">
+        <div class="mm-lbl">الأكواد السباعية</div>
+        <div class="dot-progress" id="dotProgress">
+          <div class="dot" id="d0"></div><div class="dot" id="d1"></div><div class="dot" id="d2"></div>
+          <div class="dot" id="d3"></div><div class="dot" id="d4"></div><div class="dot" id="d5"></div>
+          <div class="dot" id="d6"></div>
+        </div>
+        <div class="man-row">
+          <input class="man-inp" id="manInp" type="tel" inputmode="numeric" maxlength="7" placeholder="0000000"
+            oninput="onManInput(this)" onkeydown="if(event.key==='Enter')addCode()">
+          <button class="man-add" onclick="addCode()">➕</button>
+        </div>
+        <div class="man-hint" id="manHint">اكتب 7 أرقام — تتحول للأخضر تلقائياً</div>
+        <div class="chips-wrap" id="chipsWrap"></div>
+        <div class="chip-cnt" id="chipCnt" style="display:none"></div>
+        <button class="cmp-btn" id="cmpBtn" onclick="compareAll()" style="display:none;margin-top:10px">
+          <span id="cmpTxt">🔍 مقارنة مع القاعدة المحلية</span>
+        </button>
+      </div>
+    </div>
+    <div id="uploadSec">
+      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">📄 أو ارفع ورقة (OCR)</span><div class="sec-hdr-line"></div></div>
+      <div class="up-area"><input type="file" id="mainFile" accept="image/*" multiple onchange="addPages(this.files)"><div class="up-ico">📄</div><div class="up-lbl">ارفع صورة ورقة التوزيع</div><div class="up-sub">يمكن رفع أكثر من ورقة دفعة واحدة</div></div>
+    </div>
+    <div id="pagesWrap" style="display:none">
+      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">🗂️ الأوراق</span><div class="sec-hdr-line"></div></div>
+      <div class="pg-strip" id="pgStrip">
+        <div class="add-pg-btn"><input type="file" id="addMoreFile" accept="image/*" multiple onchange="addPages(this.files)"><div>➕</div><div class="add-pg-lbl">إضافة</div></div>
+      </div>
+    </div>
+    <button class="proc-btn" id="procBtn" onclick="startOCR()" style="display:none" disabled>
+      <span id="procTxt">🔍 استخراج الأكواد ومقارنتها</span>
+    </button>
+    <div class="prog-wrap" id="progWrap">
+      <div class="prog-row"><span class="prog-lbl" id="progLbl">جارٍ...</span><span class="prog-pct" id="progPct">0%</span></div>
+      <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+      <div class="prog-step" id="progStep"></div>
+    </div>
+    <div class="dpanel-spacer"></div>
+  </div>
+  <div class="fab-row" id="fabRow">
+    <button class="start-fab green" onclick="goToNav()">🗺️ بدء التوزيع</button>
+    <button class="start-fab red" onclick="resetDay()">🔄 يوم جديد</button>
+  </div>
+</div>
+
+<!-- NAV SCREEN -->
+<div class="screen below" id="navscreen" style="overflow:hidden;">
+  <div class="nav-hdr">
+    <button class="nav-hdr-back" onclick="stopGeo();goTo('distrib','right')">←</button>
+    <span class="nav-hdr-title">🗺️ مسار التوزيع</span>
+    <div class="nav-hdr-badge" id="navBadge">0 زبون</div>
+  </div>
+  <!-- Google Maps -->
+  <div class="map-top">
+    <div id="gmap"></div>
+    <!-- مؤشر تحميل المسار -->
+  <div id="routeLoadingBadge" style="display:none;position:absolute;top:8px;right:50%;transform:translateX(50%);background:rgba(0,0,0,.75);backdrop-filter:blur(8px);border-radius:20px;padding:5px 14px;color:#22c55e;font-size:11px;font-weight:800;font-family:Cairo,sans-serif;z-index:10;align-items:center;gap:6px">
+    <span style="animation:spin .8s linear infinite;display:inline-block">⟳</span> جارٍ رسم المسار...
+  </div>
+  <div class="map-ctrl-row">
+    <button class="map-btn green" onclick="openRoute()">🚗 ملاحة كاملة</button>
+    <button class="map-btn" onclick="centerMe()">📍 موقعي</button>
+  </div>
+  </div>
+  <!-- بانر العربة 300م -->
+  <div class="cart-banner" id="cartBanner">
+    <span style="font-size:20px">🛒</span>
+    <div>
+      <div class="cart-banner-txt" id="cartTxt">استخدم العربة!</div>
+      <div class="cart-banner-sub">المسافة أقل من 300 متر — لا تحرك الشاحنة</div>
+    </div>
+  </div>
+  <!-- بانر التوقيت التقديري لليوم -->
+  <div id="etaBanner" style="display:none;background:linear-gradient(135deg,#1a1a2e,#16213e);border-bottom:1px solid rgba(99,102,241,.25);padding:7px 14px;flex-shrink:0;flex-direction:row;align-items:center;gap:10px;">
+    <span style="font-size:18px">📊</span>
+    <div style="flex:1">
+      <div id="etaMain" style="font-size:12px;font-weight:800;color:#818cf8"></div>
+      <div id="etaSub" style="font-size:10px;color:rgba(129,140,248,.7);margin-top:1px"></div>
+    </div>
+    <div id="etaTime" style="font-size:20px;font-weight:900;color:#818cf8;font-family:monospace"></div>
+  </div>
+  <div class="nav-list-wrap"><div id="navList"></div></div>
+</div>
+
+<!-- NOT PAID SCREEN -->
+<div class="screen below" id="notpaidscreen">
+  <div class="hdr" style="background:linear-gradient(135deg,#92400e,#78350f)">
+    <button class="hdr-back" onclick="goTo('navscreen','right')">←</button>
+    <span class="hdr-title">⏳ لم يدفع بعد</span>
+  </div>
+  <div class="np-scroll">
+    <div class="np-card">
+      <div class="np-title">⚠️ تفاصيل الزبون</div>
+      <div class="np-cust-box">
+        <div class="np-code" id="npCode">—</div>
+        <div class="np-name" id="npName">—</div>
+      </div>
+      <div class="np-lbl">⏱️ اختر وقت العودة</div>
+      <div class="time-grid">
+        <div class="t-opt on" onclick="selTime(this,15)"><div class="t-min">15</div><div class="t-lbl">دقيقة</div></div>
+        <div class="t-opt" onclick="selTime(this,30)"><div class="t-min">30</div><div class="t-lbl">دقيقة</div></div>
+        <div class="t-opt" onclick="selTime(this,45)"><div class="t-min">45</div><div class="t-lbl">دقيقة</div></div>
+        <div class="t-opt" onclick="selTime(this,60)"><div class="t-min">1</div><div class="t-lbl">ساعة</div></div>
+        <div class="t-opt" onclick="selTime(this,90)"><div class="t-min">1.5</div><div class="t-lbl">ساعة</div></div>
+        <div class="t-opt" onclick="selTime(this,120)"><div class="t-min">2</div><div class="t-lbl">ساعة</div></div>
+      </div>
+      <div class="np-lbl">أو وقت مخصص (دقائق)</div>
+      <input class="custom-inp" id="customInp" type="number" inputmode="numeric" min="1" max="480" placeholder="مثال: 25">
+      <div class="np-lbl">📝 ملاحظة</div>
+      <textarea class="np-note" id="npNote" placeholder="سبب التأجيل..."></textarea>
+      <button class="np-confirm" onclick="confirmNP()">⏳ تأكيد — سأعود لاحقاً</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="edit-modal" id="editModal">
+  <div class="edit-overlay" onclick="closeEdit()"></div>
+  <div class="edit-sheet">
+    <div class="edit-sheet-hdl"></div>
+    <div class="edit-sheet-hdr">
+      <div class="edit-sheet-title">🔧 تعديل بيانات الزبون</div>
+      <button class="edit-close" onclick="closeEdit()">✕</button>
+    </div>
+    <div class="edit-body">
+      <div class="edit-fg">
+        <div class="edit-lbl">🔑 الكود</div>
+        <div id="editCodeDisplay" style="font-size:22px;font-weight:900;font-family:monospace;color:#E4002B;letter-spacing:3px;padding:8px 0"></div>
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">🧑 الاسم</div>
+        <input class="edit-inp" id="editName" type="text" placeholder="اسم الزبون أو المحل">
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">📱 الهاتف</div>
+        <input class="edit-inp" id="editPhone" type="tel" inputmode="numeric" placeholder="0xxxxxxxxx">
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">📝 ملاحظة</div>
+        <textarea class="edit-inp" id="editNote" rows="2" style="resize:none"></textarea>
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">🏪 الصورة</div>
+        <div class="edit-photo-row">
+          <div id="editPhotoThumb"><div class="edit-photo-ph">🏪</div></div>
+          <div class="edit-photo-btn">
+            <input type="file" accept="image/*" capture="environment" onchange="editPhotoChange(this)">
+            <div class="edit-photo-btn-lbl">📷 تغيير الصورة</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px">اضغط للتقاط أو اختيار</div>
+          </div>
+        </div>
+      </div>
+      <button class="edit-save-btn" id="editSaveBtn" onclick="saveEdit()">💾 حفظ التعديلات</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal صورة -->
+<div class="img-modal" id="imgModal" onclick="closeModal()">
+  <img id="modalImg" src="" alt="">
+  <button class="img-modal-close">✕</button>
+</div>
+
+<!-- تنبيه Geofence -->
+<div class="geo-alert" id="geoAlert">
+  <div class="geo-inner">
+    <div class="geo-ico" id="geoIco">⚠️</div>
+    <div class="geo-txt">
+      <div class="geo-title" id="geoTitle">تنبيه!</div>
+      <div class="geo-sub" id="geoSub"></div>
+    </div>
+    <button class="geo-close" onclick="closeGeo()">✕</button>
+  </div>
+</div>
+
+<div class="snk" id="snk"></div>
+
+<script>
+/* ══ CONSTANTS ══ */
+var CART_M = 300;   /* مسافة العربة: 300 متر */
+var GEO_M  = 500;   /* مسافة Geofence: 500 متر */
+
+/* ══ BUBBLES ══ */
+(function(){var bc=document.getElementById('bubs'),f=document.createDocumentFragment();for(var i=0;i<16;i++){var b=document.createElement('div');b.className='bub';var s=3+Math.random()*10;b.style.cssText='width:'+s+'px;height:'+s+'px;left:'+(Math.random()*100)+'%;bottom:'+(Math.random()*60)+'%;animation-duration:'+(5+Math.random()*9)+'s;animation-delay:'+(Math.random()*9)+'s;';f.appendChild(b);}bc.appendChild(f);})();
+
+/* ══ CLOCK ══ */
+function tick(){var n=new Date();document.getElementById('clk').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');}
+tick();setInterval(tick,30000);
+
+/* ══ DARK MODE — defined in IDB block above ══ */
+
+/* ══ ROUTER ══ */
+function goTo(id,dir){
+  var from=document.querySelector('.screen.active'),to=document.getElementById(id);
+  if(!to||to===from)return;
+  var outC=(id==='navscreen'||id==='notpaidscreen')?'left':(from&&(from.id==='navscreen'||from.id==='notpaidscreen')&&dir==='right')?'below':(dir==='left'?'left':'right');
+  if(from)from.className='screen '+outC;
+  to.className='screen active';
+}
+
+/* ══ SNACK ══ */
+var snkT;
+function snk(m,t){var e=document.getElementById('snk');e.className='snk show'+(t?' '+t:'');e.textContent=m;clearTimeout(snkT);snkT=setTimeout(function(){e.classList.remove('show');},3500);}
+
+/* ══ GOOGLE MAPS ══ */
+/* ══ LEAFLET MAP — OpenStreetMap — مجاني 100% ══ */
+var lMap=null,lUserM=null,lPoly=null,lMarkers=[];
+
+function initMap(){
+  var mapEl=document.getElementById('gmap');
+  if(!mapEl){snk('⚠️ عنصر الخريطة غير موجود');return;}
+  // تنظيف Leaflet القديم
+  if(lMap){try{lMap.off();lMap.remove();}catch(e){} lMap=null;}
+  if(lUserM)lUserM=null;
+  if(lPoly)lPoly=null;
+  lMarkers=[];
+  // إعادة ضبط العنصر
+  mapEl.innerHTML='';
+  var cLat=userLat||36.7538, cLng=userLng||3.0588;
+  try{
+    lMap=L.map(mapEl,{
+      center:[cLat,cLng],zoom:13,
+      zoomControl:true,
+      attributionControl:false,
+      tap:false
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:19,
+      subdomains:'abc'
+    }).addTo(lMap);
+    // إجبار Leaflet على إعادة حساب الحجم
+    setTimeout(function(){
+      if(lMap){
+        lMap.invalidateSize(true);
+        drawMap();
+      }
+    },200);
+  }catch(e){
+    console.error('Map error:',e);
+    snk('⚠️ خطأ: '+e.message);
+  }
+}
+
+function makeIcon(num,color){
+  // دائرة ملونة بالرقم — واضحة على الخريطة
+  var h='<div style="'
+    +'width:34px;height:34px;border-radius:50%;'
+    +'background:'+color+';'
+    +'border:3px solid #fff;'
+    +'display:flex;align-items:center;justify-content:center;'
+    +'font-size:13px;font-weight:900;color:#fff;'
+    +'box-shadow:0 3px 10px rgba(0,0,0,.5);'
+    +'line-height:1'
+    +'">'+num+'</div>';
+  return L.divIcon({
+    className:'',
+    html:h,
+    iconSize:[34,34],
+    iconAnchor:[17,17],
+    popupAnchor:[0,-20]
+  });
+}
+
+/* ══ أيقونة الشاحنة الحمراء ══ */
+var truckIcon=null;
+function getTruckIcon(){
+  if(truckIcon)return truckIcon;
+  var style='background:#E4002B;border:3px solid #fff;border-radius:10px;width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 0 0 3px rgba(228,0,43,.4),0 4px 12px rgba(0,0,0,.5)';
+  truckIcon=L.divIcon({
+    className:'',
+    html:'<div style="'+style+'">🚚</div>',
+    iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-46]
+  });
+  return truckIcon;
+}
+function makeUserIcon(){return getTruckIcon();}
+
+function drawMap(){
+  if(!lMap)return;
+  // مسح القديم
+  lMarkers.forEach(function(m){lMap.removeLayer(m);});lMarkers=[];
+  if(lPoly){lMap.removeLayer(lPoly);lPoly=null;}
+  // لا نمسح lUserM عند إعادة الرسم — نتركه يُحدَّث بـ updateUserLocation
+  // if(lUserM) — محذوف عمداً لتجنب إزالة الشاحنة
+
+  var active=navSorted.filter(function(c){return c.status==='found'&&c.lat&&c.lng&&c.ps!=='paid';});
+
+  var bounds=[];
+
+  // شاحنة الموزع — إنشاء فقط إذا لم تكن موجودة
+  if(userLat&&userLng){
+    updateUserLocation(userLat,userLng);
+    bounds.push([userLat,userLng]);
+  }
+
+  if(!active.length){if(bounds.length)lMap.setView(bounds[0],14);return;}
+
+  // رسم العلامات + جمع نقاط المسار
+  var waypoints=[];
+  if(userLat&&userLng)waypoints.push([userLat,userLng]);
+
+  active.forEach(function(item,i){
+    var col=item.ps==='locked'?'#ef4444':item.ps==='notpaid'?'#f59e0b':'#E4002B';
+    var isCart=item.distance!==null&&item.distance*1000<=CART_M;
+    var popup='<div style="font-family:Cairo,sans-serif;direction:rtl;min-width:140px">'
+      +'<b style="color:'+col+';font-size:15px">'+item.code+'</b>'
+      +(item.name?'<br><span style="color:#555">'+item.name+'</span>':'')
+      +(item.distance?'<br>📍 <b>'+dl(item.distance)+'</b>':'')
+      +(isCart?'<br>🛒 <b style="color:#22c55e">استخدم العربة</b>':'')
+      +(item.ps==='locked'?'<br>🔒 <b style="color:#ef4444">مقفل</b>':item.ps==='notpaid'?'<br>⏳ <b style="color:#f59e0b">لم يدفع</b>':'')
+      +'<br><a href="https://www.google.com/maps/dir/?api=1&destination='+item.lat+','+item.lng+'&travelmode=driving" target="_blank" style="color:#E4002B;font-weight:700;font-size:12px">🚗 ابدأ الملاحة</a>'
+      +'</div>';
+    var mk=L.marker([item.lat,item.lng],{icon:makeIcon(i+1,col)}).addTo(lMap);
+    mk.bindPopup(popup,{maxWidth:200});
+    lMarkers.push(mk);
+    waypoints.push([item.lat,item.lng]);
+    bounds.push([item.lat,item.lng]);
+  });
+
+  // رسم المسار عبر الشوارع الحقيقية
+  if(waypoints.length>1) drawRoadRoute(waypoints);
+
+  // ضبط الحدود لإظهار كل الزبائن
+  if(bounds.length>0){
+    try{lMap.fitBounds(bounds,{padding:[20,20]});}catch(e){if(bounds[0])lMap.setView(bounds[0],14);}
+  }
+}
+
+/* ══ رسم المسار عبر الشوارع الحقيقية (OSRM) ══ */
+function drawRoadRoute(waypoints){
+  if(!lMap||waypoints.length<2)return;
+
+  // مسح الخط القديم
+  if(lPoly){lMap.removeLayer(lPoly);lPoly=null;}
+
+  // بناء رابط OSRM — مجاني بدون API Key
+  // الصيغة: /route/v1/driving/lng,lat;lng,lat;...
+  var coords=waypoints.map(function(p){return p[1]+','+p[0];}).join(';');
+  var url='https://router.project-osrm.org/route/v1/driving/'+coords
+    +'?overview=full&geometries=geojson&steps=false';
+
+  // إظهار مؤشر تحميل
+  showRouteLoading(true);
+
+  fetch(url)
+    .then(function(r){return r.json();})
+    .then(function(data){
+      showRouteLoading(false);
+      if(!data.routes||!data.routes[0]){
+        // fallback — خط مستقيم إذا فشل OSRM
+        drawStraightLine(waypoints);
+        return;
+      }
+      var route=data.routes[0];
+      var coords=route.geometry.coordinates; // [lng,lat] pairs
+      var latLngs=coords.map(function(c){return[c[1],c[0]];});
+
+      // رسم ظل الخط
+      L.polyline(latLngs,{
+        color:'rgba(0,0,0,0.25)',weight:8,opacity:1,lineJoin:'round',lineCap:'round'
+      }).addTo(lMap);
+
+      // رسم الخط الرئيسي — أخضر يتبع الشوارع
+      lPoly=L.polyline(latLngs,{
+        color:'#22c55e',weight:5,opacity:1,
+        lineJoin:'round',lineCap:'round'
+      }).addTo(lMap);
+
+      // معلومات المسار في البانر
+      var km=(route.distance/1000).toFixed(1);
+      var mins=Math.round(route.duration/60);
+      updateETAFromRoute(mins,km);
+    })
+    .catch(function(){
+      showRouteLoading(false);
+      // إذا لا يوجد إنترنت — خط مستقيم كـ fallback
+      drawStraightLine(waypoints);
+    });
+}
+
+function drawStraightLine(waypoints){
+  // fallback — خط مستقيم بين النقاط
+  if(lPoly){lMap.removeLayer(lPoly);lPoly=null;}
+  L.polyline(waypoints,{color:'rgba(0,0,0,0.2)',weight:7,opacity:1}).addTo(lMap);
+  lPoly=L.polyline(waypoints,{
+    color:'#22c55e',weight:4,opacity:.9,dashArray:'10,6'
+  }).addTo(lMap);
+}
+
+function showRouteLoading(show){
+  var el=document.getElementById('routeLoadingBadge');
+  if(el)el.style.display=show?'flex':'none';
+}
+
+function updateETAFromRoute(driveMins,km){
+  // تحديث بانر ETA بمعلومات من OSRM
+  var remaining=navSorted.filter(function(c){return c.status==='found'&&c.ps!=='paid';});
+  var total=navSorted.filter(function(c){return c.status==='found';}).length;
+  var done=total-remaining.length;
+  var pct=total>0?Math.round(done/total*100):0;
+  var stopMins=remaining.length*5; // ~5 دقائق لكل زبون
+  var totalMins=driveMins+stopMins;
+  var endTime=new Date(Date.now()+totalMins*60000);
+  var hh=String(endTime.getHours()).padStart(2,'0');
+  var mm=String(endTime.getMinutes()).padStart(2,'0');
+  var banner=document.getElementById('etaBanner');
+  if(banner&&remaining.length>0){
+    banner.classList.add('show');
+    document.getElementById('etaMain').textContent='تقدم اليوم: '+done+'/'+total+' — باقي '+remaining.length+' زبون';
+    document.getElementById('etaSub').textContent='🛣️ '+km+'كم | قيادة '+driveMins+'د + توقفات '+stopMins+'د';
+    document.getElementById('etaTime').textContent=hh+':'+mm;
+    document.getElementById('navBadge').textContent=remaining.length+' زبون ('+pct+'%)';
+  }
+}
+
+function centerMe(){
+  if(!lMap)return;
+  if(userLat&&userLng){lMap.setView([userLat,userLng],16);if(lUserM)lUserM.openPopup();}
+  else{snk('⚠️ لم يتم تحديد موقعك بعد');}
+}
+
+function openRoute(){
+  var ac=navSorted.filter(function(c){return c.status==='found'&&c.lat&&c.lng&&c.ps!=='paid';});
+  if(!ac.length){snk('⚠️ لا توجد زبائن للملاحة');return;}
+  var dest=ac[ac.length-1];
+  var wp=ac.slice(0,-1).map(function(c){return c.lat+','+c.lng;}).join('|');
+  var orig=userLat&&userLng?(userLat+','+userLng):(ac[0].lat+','+ac[0].lng);
+  // فتح Google Maps للملاحة (الأفضل للملاحة الصوتية)
+  window.open('https://www.google.com/maps/dir/?api=1&origin='+encodeURIComponent(orig)+'&destination='+encodeURIComponent(dest.lat+','+dest.lng)+(wp?'&waypoints='+encodeURIComponent(wp):'')+'&travelmode=driving','_blank');
+}
+
+/* ══ GEOFENCING + GPS WATCH ══ */
+var geoWatchId=null,alerted={};
+
+function startGeo(){
+  stopGeo();
+  if(!navigator.geolocation)return;
+  if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
+  // FIX 2: watchPosition — تحديث مستمر وسلس أثناء القيادة بدلاً من setInterval
+  geoWatchId=navigator.geolocation.watchPosition(
+    function(pos){onGpsUpdate(pos.coords.latitude,pos.coords.longitude);},
+    function(err){console.warn('GPS watch error:',err.code,err.message);},
+    {enableHighAccuracy:true,maximumAge:30000,timeout:27000}
+  );
+}
+
+function stopGeo(){
+  if(geoWatchId!==null){
+    navigator.geolocation.clearWatch(geoWatchId);
+    geoWatchId=null;
+  }
+}
+
+function updateUserLocation(lat,lng){
+  if(!lMap)return;
+  if(lUserM){
+    // تحديث الموقع بدون إعادة إنشاء الأيقونة — أسرع وأسلس
+    lUserM.setLatLng([lat,lng]);
+  } else {
+    lUserM=L.marker([lat,lng],{icon:makeUserIcon(),zIndexOffset:1000}).addTo(lMap);
+    lUserM.bindPopup('<div style="font-family:Cairo,sans-serif;direction:rtl;font-weight:700;color:#E4002B">🚛 موقع الشاحنة</div>');
+  }
+}
+
+function onGpsUpdate(lat,lng){
+  userLat=lat;userLng=lng;
+
+  // 1. تحديث أيقونة الشاحنة على الخريطة
+  updateUserLocation(lat,lng);
+
+  // 2. تحديث بانر العربة 300م
+  var cnt=navSorted.filter(function(c){
+    return c.status==='found'&&c.lat&&c.lng&&c.ps!=='paid'&&hav(lat,lng,c.lat,c.lng)*1000<=CART_M;
+  }).length;
+  var banner=document.getElementById('cartBanner');
+  if(cnt>0){banner.classList.add('show');document.getElementById('cartTxt').textContent='🛒 '+cnt+' زبون خلال 300م — استخدم العربة!';}
+  else{banner.classList.remove('show');}
+
+  // 3. تحديث المسافات وإعادة الترتيب
+  navSorted.forEach(function(c){if(c.lat&&c.lng)c.distance=hav(lat,lng,c.lat,c.lng);});
+  renderList();
+
+  // 4. فحص Geofence
+  navSorted.forEach(function(item){
+    if(item.ps!=='locked'&&item.ps!=='notpaid')return;
+    if(!item.lat||!item.lng)return;
+    var dm=hav(lat,lng,item.lat,item.lng)*1000;
+    if(dm<=GEO_M){
+      var key=item.code+'_'+item.ps;
+      if(!alerted[key]){
+        alerted[key]=true;
+        fireAlert(item,Math.round(dm));
+        setTimeout(function(){delete alerted[key];},120000);
+      }
+    }
+  });
+}
+
+function fireAlert(item,dm){
+  var isL=item.ps==='locked';
+  var el=document.getElementById('geoAlert');
+  el.className='geo-alert show'+(isL?' geo-locked':'');
+  document.getElementById('geoIco').textContent=isL?'🔒':'⏳';
+  document.getElementById('geoTitle').textContent=(isL?'🔒 زبون مقفل':'⏳ زبون لم يدفع')+' — على بُعد '+dm+'م!';
+  document.getElementById('geoSub').textContent='الكود: '+item.code+(item.name?' | '+item.name:'');
+  // رنين قوي عند الاقتراب من 500م
+  playAlarm(isL);
+  if('Notification'in window&&Notification.permission==='granted'){new Notification(isL?'🔒 زبون مقفل بجانبك!':'⏳ زبون لم يدفع بجانبك!',{body:'الكود: '+item.code+(item.name?' — '+item.name:'')+'\n'+dm+'م',vibrate:[400,200,400]});}
+  setTimeout(closeGeo,7000);
+}
+function closeGeo(){document.getElementById('geoAlert').className='geo-alert';}
+
+/* ══ REGISTER ══ */
+var photoB64=null;
+function compressImage(dataUrl,maxPx,quality,cb){
+  // FIX 3: ضغط وتصغير الصورة — 800px max، JPEG 82%
+  var img=new Image();
+  img.onload=function(){
+    var w=img.width,h=img.height;
+    if(w>maxPx||h>maxPx){
+      if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}
+      else{w=Math.round(w*maxPx/h);h=maxPx;}
+    }
+    var cv=document.createElement('canvas');cv.width=w;cv.height=h;
+    cv.getContext('2d').drawImage(img,0,0,w,h);
+    cb(cv.toDataURL('image/jpeg',quality));
+  };
+  img.src=dataUrl;
+}
+function previewPhoto(input){
+  if(!input.files||!input.files[0])return;
+  var r=new FileReader();
+  r.onload=function(e){
+    compressImage(e.target.result,800,0.82,function(compressed){
+      photoB64=compressed;
+      document.getElementById('pimg').src=compressed;
+      document.getElementById('pprev').style.display='block';
+      document.getElementById('puArea').style.display='none';
+      // إظهار حجم الصورة تقريباً
+      var kb=Math.round(compressed.length*0.75/1024);
+      document.getElementById('puArea').nextElementSibling.querySelector('img').title='حجم الصورة: ~'+kb+'KB';
+    });
+  };
+  r.readAsDataURL(input.files[0]);
+}
+function removePhoto(){photoB64=null;document.getElementById('pimg').src='';document.getElementById('pprev').style.display='none';document.getElementById('puArea').style.display='flex';document.getElementById('photoFile').value='';}
+function onCodeInput(inp){
+  // أرقام فقط + حد 7 أرقام — لا يقبل أكثر
+  var v=inp.value.replace(/\D/g,'');
+  if(v.length>7)v=v.slice(0,7);
+  inp.value=v;
+  var h=document.getElementById('codeHint');
+  if(!v){
+    inp.classList.remove('green-state','error');
+    h.style.color='#aaa';h.textContent='أدخل كوداً فريداً';
+  } else if(v.length<7){
+    inp.classList.remove('green-state','error');
+    h.style.color='#f59e0b';h.textContent='⚠️ '+v.length+'/7';
+  } else {
+    // 7 أرقام — تأكيد فوري
+    inp.classList.remove('error');inp.classList.add('green-state');
+    h.style.color='#22c55e';h.textContent='✅ '+v+' — جاهز!';
+    inp.blur(); // أغلق لوحة المفاتيح
+    if(navigator.vibrate)navigator.vibrate(60);
+  }
+}
+/* ══ الموقع المحفوظ مسبقاً بالضغط على البنر ══ */
+var pendingCoords=null;
+
+function captureGPSNow(){
+  var lc=document.getElementById('lc');
+  var li=document.getElementById('li');
+  var ls=document.getElementById('ls');
+  // لا تعيد التحديد إذا خُذ مسبقاً
+  if(lc.classList.contains('done'))return;
+  lc.className='locc pulsing';
+  li.textContent='🔄';li.className='locico spin';
+  ls.textContent='جارٍ تحديد الموقع...';
+  if(!navigator.geolocation){
+    ls.textContent='GPS غير متاح في هذا الجهاز';
+    lc.className='locc';li.textContent='⚠️';li.className='locico';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    function(p){
+      pendingCoords={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+      lc.className='locc done';
+      li.textContent='✅';li.className='locico ok';
+      ls.innerHTML='<span style="color:#22c55e;font-weight:700">📍 '+pendingCoords.lat.toFixed(5)+', '+pendingCoords.lng.toFixed(5)+' (±'+pendingCoords.acc+'م)</span>';
+      // أزل زر "اضغط"
+      var btn=lc.querySelector('span');if(btn)btn.style.display='none';
+      snk('✅ تم تحديد موقعك — أضف البيانات الآن','g');
+    },
+    function(err){
+      lc.className='locc';li.textContent='⚠️';li.className='locico';
+      ls.textContent='تعذّر تحديد الموقع — حاول مجدداً';
+      snk('⚠️ فشل GPS — تحقق من الإذن','y');
+    },
+    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+  );
+}
+
+function getGPS(){
+  return new Promise(function(res,rej){
+    if(!navigator.geolocation){rej(new Error('no-gps'));return;}
+    var opt={enableHighAccuracy:true,timeout:20000,maximumAge:0};
+    navigator.geolocation.getCurrentPosition(function(p){
+      // محاولة أولى — إذا دقيقة جداً، أرجعها مباشرة
+      if(p.coords.accuracy<=20){res(p);return;}
+      // محاولة ثانية للحصول على دقة أفضل
+      setTimeout(function(){
+        navigator.geolocation.getCurrentPosition(function(p2){
+          var best=p2.coords.accuracy<p.coords.accuracy?p2:p;
+          // الدقة المطلوبة: 20 متر أو أقل
+          if(best.coords.accuracy>20){
+            rej(new Error('accuracy_low:'+Math.round(best.coords.accuracy)));
+            return;
+          }
+          res(best);
+        },function(){
+          // إذا فشلت المحاولة الثانية، نستخدم الأولى لكن نتحقق من دقتها
+          if(p.coords.accuracy>20){
+            rej(new Error('accuracy_low:'+Math.round(p.coords.accuracy)));
+            return;
+          }
+          res(p);
+        },opt);
+      },2000);
+    },rej,opt);
+  });
+}
+async function doRegister(){
+  var code=document.getElementById('codeInp').value.trim();
+  if(!code){document.getElementById('codeInp').classList.add('error');snk('❌ الكود إجباري');return;}
+  var nm=document.getElementById('nmInp').value.trim(),ph=document.getElementById('phInp').value.trim(),nt=document.getElementById('ntInp').value.trim();
+  var rb=document.getElementById('rb'),sw=document.getElementById('sw'),rbt=document.getElementById('rbt');
+  rb.disabled=true;sw.style.display='block';rbt.textContent='جارٍ تحديد الموقع...';
+  var lc=document.getElementById('lc'),li=document.getElementById('li'),ls=document.getElementById('ls');
+  var coords=null;
+  if(pendingCoords){
+    // استخدم الموقع المحفوظ مسبقاً بالضغط على البنر
+    coords=pendingCoords;
+    lc.className='locc done';li.textContent='✅';li.className='locico ok';
+  } else {
+    // لم يضغط على البنر — خذ الموقع الآن
+    lc.className='locc pulsing';li.textContent='🔄';li.className='locico spin';
+    try{
+      var p=await getGPS();
+      coords={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+      lc.className='locc done';li.textContent='✅';li.className='locico ok';
+      ls.innerHTML='<span style="color:#22c55e;font-weight:700">📍 '+coords.lat.toFixed(5)+', '+coords.lng.toFixed(5)+'</span>';
+    }catch(e){
+      lc.className='locc';li.textContent='⚠️';li.className='locico';
+      if(e.message&&e.message.startsWith('accuracy_low:')){
+        var acc=e.message.split(':')[1];
+        ls.innerHTML='<span style="color:#ef4444;font-weight:600">📡 الدقة ضعيفة (±'+acc+'م)</span>';
+        snk('📡 الدقة '+acc+'م — اخرج لمكان مكشوف','y');
+      } else {
+        ls.textContent='تعذّر تحديد الموقع';
+      }
+    }
+  }
+  rbt.textContent='جارٍ الحفظ...';
+  try{
+    var newId=await IDB.addCustomer({code,name:nm||null,phone:ph||null,note:nt||null,latitude:coords?coords.lat:null,longitude:coords?coords.lng:null,accuracy:coords?coords.acc:null,createdAt:new Date().toISOString()});
+    if(photoB64)await IDB.saveImage(newId,photoB64);
+    document.getElementById('sinfoReg').innerHTML='<div class="srow"><span>🔑 الكود</span><span class="sval">'+code+'</span></div>'+(nm?'<div class="srow"><span>👤 الاسم</span><span class="sval">'+nm+'</span></div>':'')+(coords?'<div class="srow"><span>📍 دقة GPS</span><span class="sval">±'+coords.acc+'م</span></div>':'')+'<div class="srow"><span>🖼️ صورة</span><span class="sval">'+(photoB64?'محفوظة ✅':'—')+'</span></div>';
+    document.getElementById('sovReg').classList.add('show');
+  }catch(err){snk('❌ '+(err.message||err));}
+  rb.disabled=false;sw.style.display='none';rbt.textContent='📥 تسجيل الزبون';
+}
+function afterRegOk(){
+  ['codeInp','nmInp','phInp','ntInp'].forEach(function(id){document.getElementById(id).value='';});
+  removePhoto();
+  pendingCoords=null; // نظّف الموقع المحفوظ
+  document.getElementById('codeInp').classList.remove('green-state','error');
+  document.getElementById('codeHint').style.color='#aaa';document.getElementById('codeHint').textContent='أدخل كوداً فريداً';
+  document.getElementById('sovReg').classList.remove('show');
+  document.getElementById('lc').className='locc';
+  document.getElementById('li').textContent='📍';document.getElementById('li').className='locico';
+  document.getElementById('ls').textContent='سيُحفظ الموقع قبل إدخال البيانات';document.getElementById('ls').className='locsub';
+  // أعد إظهار زر "اضغط"
+  var btn=document.querySelector('#lc span');if(btn)btn.style.display='';
+  goTo('home','right');
+}
+
+/* ══ DISTRIB ══ */
+var pages=[],ocrWorker=null,allCodes=[],manCodes=[],userLat=null,userLng=null;
+var MAX_CODES=80;
+// FIX 4: خريطة الأكواد — ضمان عدم التكرار بين Manual و OCR
+var codesMap={}; // {code: itemObject}
+function upsertCode(code,data){
+  if(codesMap[code]){
+    // حافظ على حالة الدفع الموجودة
+    var old=codesMap[code];
+    codesMap[code]=Object.assign({},data,{ps:old.ps||data.ps});
+  } else {
+    codesMap[code]=data;
+  }
+  allCodes=Object.values(codesMap);
+}
+function clearCodesMap(){codesMap={};allCodes=[];}
+function hav(a,b,c,d){var R=6371,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180;var x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dG/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+function dc(km){if(km===null)return'unknown';if(km<2)return'close';if(km<5)return'mid';return'far';}
+function dl(km){if(km===null)return'بدون موقع';if(km<1)return Math.round(km*1000)+'م';return km.toFixed(1)+'كم';}
+function extract7(t){return[...new Set((t.match(/\b\d{7}\b/g)||[]))];}
+function updateStats(){
+  var t=allCodes.length,f=allCodes.filter(function(c){return c.status==='found';}).length;
+  document.getElementById('stTotal').textContent=t;
+  document.getElementById('stFound').textContent=f;
+  document.getElementById('stMissing').textContent=t-f;
+  document.getElementById('stPages').textContent=pages.length;
+  // إظهار الأزرار فور إضافة أي كود
+  var fabRow=document.getElementById('fabRow');
+  if(t>0){
+    fabRow.classList.add('show');
+  } else {
+    fabRow.classList.remove('show');
+  }
+}
+function updateDots(n,all){for(var i=0;i<7;i++){var d=document.getElementById('d'+i);if(!d)continue;if(all){d.classList.add('all-green','filled');}else{d.classList.remove('all-green');i<n?d.classList.add('filled'):d.classList.remove('filled');}}}
+function onManInput(inp){
+  // أرقام فقط + حد 7 أرقام صارم
+  var v=inp.value.replace(/\D/g,'');
+  if(v.length>7)v=v.slice(0,7);
+  inp.value=v;
+  var h=document.getElementById('manHint');
+  clearTimeout(inp._t);
+  updateDots(v.length,false);
+  if(!v){
+    inp.classList.remove('valid');
+    h.className='man-hint';h.textContent='اكتب 7 أرقام — تُضاف تلقائياً';
+  } else if(v.length<7){
+    inp.classList.remove('valid');
+    h.className='man-hint warn';h.textContent='⚠️ '+v.length+'/7 أرقام';
+  } else if(manCodes.includes(v)){
+    inp.classList.remove('valid');
+    h.className='man-hint warn';h.textContent='⚠️ الكود '+v+' موجود بالفعل';
+  } else {
+    // 7 أرقام كاملة — إضافة تلقائية بعد 0.8 ثانية
+    inp.classList.add('valid');
+    updateDots(7,true);
+    h.className='man-hint ok';
+    h.textContent='✅ '+v+' — سيُضاف تلقائياً...';
+    if(navigator.vibrate)navigator.vibrate(60);
+    inp._t=setTimeout(function(){
+      if(document.getElementById('manInp').value.replace(/\D/g,'')===v){
+        addCode();
+      }
+    },800);
+  }
+}
+function addCode(){
+  var inp=document.getElementById('manInp'),code=inp.value.replace(/\D/g,'');
+  if(code.length!==7){snk('⚠️ يجب أن يكون الكود 7 أرقام');return;}
+  if(manCodes.includes(code)){snk('⚠️ الكود موجود بالفعل');return;}
+  if(manCodes.length>=MAX_CODES){snk('⚠️ الحد الأقصى 80 كود');return;}
+  manCodes.push(code);inp.value='';inp.classList.remove('valid');updateDots(0,false);
+  document.getElementById('manHint').className='man-hint';document.getElementById('manHint').textContent='✅ تم إضافة '+code;
+  setTimeout(function(){if(!document.getElementById('manInp').value){document.getElementById('manHint').textContent='اكتب 7 أرقام — تتحول للأخضر تلقائياً';document.getElementById('manHint').className='man-hint';}},2000);
+  renderChips();updateStats();document.getElementById('cmpBtn').style.display='flex';document.getElementById('chipCnt').style.display='block';inp.focus();
+}
+function removeCode(code){manCodes=manCodes.filter(function(c){return c!==code;});allCodes=allCodes.filter(function(c){return!(c.code===code&&c.source==='manual');});renderChips();updateStats();if(!manCodes.length){document.getElementById('cmpBtn').style.display='none';document.getElementById('chipCnt').style.display='none';}}
+function renderChips(){
+  document.getElementById('chipsWrap').innerHTML=manCodes.map(function(c){var found=allCodes.find(function(a){return a.code===c;});var cls=found?(found.status==='found'?'found':'missing'):'pending';return'<div class="chip '+cls+'"><button class="chip-rm" onclick="removeCode(\''+c+'\')">✕</button>'+c+'</div>';}).join('');
+  document.getElementById('chipCnt').textContent=manCodes.length+' كود'+(manCodes.length>=MAX_CODES?' — الحد الأقصى':'');
+}
+async function getLocation(){return new Promise(function(res){if(!navigator.geolocation){res();return;}navigator.geolocation.getCurrentPosition(function(p){userLat=p.coords.latitude;userLng=p.coords.longitude;res();},function(){res();},{enableHighAccuracy:true,timeout:8000,maximumAge:30000});});}
+async function compareAll(){
+  if(!manCodes.length){snk('⚠️ لا توجد أكواد');return;}
+  var btn=document.getElementById('cmpBtn');btn.disabled=true;document.getElementById('cmpTxt').textContent='⏳ جارٍ البحث...';
+  await getLocation();
+  try{
+    var lm=await IDB.findByCodes(manCodes);
+    manCodes.forEach(function(code){var r=lm[code];var dist=null;if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);upsertCode(code,{code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'manual',ps:'none'});});
+    renderChips();updateStats();
+    saveCurrentSession();
+    var f=allCodes.filter(function(c){return c.status==='found';}).length;
+    snk('✅ '+allCodes.length+' كود — موجود: '+f+' | غائب: '+(allCodes.length-f),'g');
+  }catch(e){snk('❌ خطأ في قاعدة البيانات: '+(e.message||'تحقق من مساحة التخزين'));}
+  btn.disabled=false;document.getElementById('cmpTxt').textContent='🔄 إعادة المقارنة';
+}
+function addPages(files){
+  if(!files||!files.length)return;
+  Array.from(files).forEach(function(file){
+    if(!file.type.startsWith('image/'))return;
+    var reader=new FileReader();
+    reader.onload=function(e){var pg={file,dataUrl:e.target.result,codes:[]};pages.push(pg);addThumb(pg,pages.length-1);document.getElementById('uploadSec').style.display='none';document.getElementById('pagesWrap').style.display='block';document.getElementById('procBtn').style.display='flex';document.getElementById('procBtn').disabled=false;document.getElementById('stPages').textContent=pages.length;};
+    reader.readAsDataURL(file);
+  });
+}
+function addThumb(pg,idx){var strip=document.getElementById('pgStrip');var ab=strip.querySelector('.add-pg-btn');var div=document.createElement('div');div.className='pg-thumb';div.id='thumb_'+idx;div.innerHTML='<img src="'+pg.dataUrl+'"><div class="pg-badge">'+(idx+1)+'</div><div class="pg-count">—</div>';strip.insertBefore(div,ab);}
+async function startOCR(){
+  if(!pages.length){snk('⚠️ لم يتم رفع أي ورقة');return;}
+  var btn=document.getElementById('procBtn'),pw=document.getElementById('progWrap');
+  btn.disabled=true;document.getElementById('procTxt').textContent='⏳ جارٍ...';pw.style.display='block';setP(0,'تهيئة OCR...','');
+  await getLocation();
+  try{if(!ocrWorker){ocrWorker=await Tesseract.createWorker('eng',1,{logger:function(){}});await ocrWorker.setParameters({tessedit_char_whitelist:'0123456789 \n',tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'});}}catch(e){snk('❌ فشل OCR');btn.disabled=false;return;}
+  var ocr7=[];
+  for(var i=0;i<pages.length;i++){setP(10+Math.round((i/pages.length)*52),'قراءة الورقة '+(i+1)+'...','');try{var cv=await preproc(pages[i].dataUrl);var rs=await ocrWorker.recognize(cv);var codes=extract7(rs.data.text);pages[i].codes=codes;var th=document.getElementById('thumb_'+i);if(th)th.querySelector('.pg-count').textContent=codes.length+' كود';ocr7.push(...codes);}catch(e){}}
+  var uOCR=[...new Set(ocr7)];setP(68,'بحث محلي...','');
+  try{
+    var lm=await IDB.findByCodes([...new Set([...uOCR,...manCodes])]);
+    // FIX 4: upsertCode يمنع التكرار تلقائياً
+    uOCR.forEach(function(code){var r=lm[code];var dist=null;if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);upsertCode(code,{code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'ocr',ps:'none'});});
+    manCodes.forEach(function(code){var r=lm[code];var dist=null;if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);upsertCode(code,{code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'manual',ps:'none'});});
+  }catch(e){}
+  renderChips();updateStats();saveCurrentSession();setP(100,'✅ اكتملت!','');setTimeout(function(){pw.style.display='none';},700);
+  // FIX 1: إنهاء Worker بعد الانتهاء لتحرير الذاكرة
+  if(ocrWorker){try{ocrWorker.terminate();ocrWorker=null;}catch(e){}}
+  btn.disabled=false;document.getElementById('procTxt').textContent='🔄 إعادة المعالجة';
+  var ff=allCodes.filter(function(c){return c.status==='found';}).length;
+  snk('✅ '+allCodes.length+' كود — موجود: '+ff,'g');
+}
+function preproc(dataUrl){return new Promise(function(res){var img=new Image();img.onload=function(){var cv=document.createElement('canvas'),sc=2;cv.width=img.width*sc;cv.height=img.height*sc;var ctx=cv.getContext('2d');ctx.drawImage(img,0,0,cv.width,cv.height);var id=ctx.getImageData(0,0,cv.width,cv.height),d=id.data;for(var i=0;i<d.length;i+=4){var g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];var v=g>145?255:0;d[i]=d[i+1]=d[i+2]=v;}ctx.putImageData(id,0,0);res(cv);};img.src=dataUrl;});}
+function setP(pct,lbl,step){document.getElementById('progPct').textContent=pct+'%';document.getElementById('progLbl').textContent=lbl;document.getElementById('progStep').textContent=step;document.getElementById('progFill').style.width=pct+'%';}
+
+/* ══ RESET DAY ══ */
+function resetDay(){
+  if(!confirm('⚠️ سيتم مسح جميع أكواد اليوم والبدء من جديد. متأكد؟'))return;
+  manCodes=[];allCodes=[];codesMap={};pages=[];
+  if(ocrWorker){try{ocrWorker.terminate();}catch(e){} ocrWorker=null;}
+  IDB.clearSession();
+  document.getElementById('chipsWrap').innerHTML='';
+  document.getElementById('chipCnt').style.display='none';
+  document.getElementById('cmpBtn').style.display='none';
+  document.getElementById('stTotal').textContent='0';
+  document.getElementById('stFound').textContent='0';
+  document.getElementById('stMissing').textContent='0';
+  document.getElementById('stPages').textContent='0';
+  // إخفاء الأزرار
+  document.getElementById('fabRow').classList.remove('show');
+  document.getElementById('uploadSec').style.display='block';
+  document.getElementById('pagesWrap').style.display='none';
+  document.getElementById('procBtn').style.display='none';
+  document.getElementById('pgStrip').innerHTML='<div class="add-pg-btn"><input type="file" id="addMoreFile" accept="image/*" multiple onchange="addPages(this.files)"><div>➕</div><div class="add-pg-lbl">إضافة</div></div>';
+  snk('🔄 تم مسح يوم الأمس — جاهز ليوم جديد!','g');
+}
+
+/* ══ SESSION PERSISTENCE (FIX 5) ══ */
+function saveCurrentSession(){
+  try{
+    var data={
+      manCodes:manCodes,
+      allCodes:allCodes.map(function(c){return{code:c.code,status:c.status,name:c.name,cid:c.cid,distance:c.distance,lat:c.lat,lng:c.lng,source:c.source,ps:c.ps,delayMin:c.delayMin||null};}),
+      codesMap:codesMap,
+      savedAt:Date.now()
+    };
+    IDB.saveSession(data);
+  }catch(e){}
+}
+function restoreSession(){
+  try{
+    var data=IDB.loadSession();
+    if(!data||!data.allCodes||!data.allCodes.length)return false;
+    // تحقق أن الجلسة ليست أقدم من 24 ساعة
+    if(Date.now()-data.savedAt>86400000){IDB.clearSession();return false;}
+    manCodes=data.manCodes||[];
+    allCodes=data.allCodes||[];
+    codesMap=data.codesMap||{};
+    allCodes.forEach(function(c){if(!codesMap[c.code])codesMap[c.code]=c;});
+    renderChips();updateStats();
+    return true;
+  }catch(e){return false;}
+}
+// ════ استرجاع الجلسة عند فتح شاشة التوزيع ════
+document.getElementById('distrib').addEventListener('transitionend',function(){
+  if(this.classList.contains('active')&&!allCodes.length){
+    if(restoreSession()){snk('💾 تم استرجاع جلسة الأمس — اضغط 🔄 يوم جديد لمسحها','g');}
+  }
+},false);
+
+/* ══ NAV LIST ══ */
+var navSorted=[],imgCache={};
+
+function goToNav(){
+  if(!allCodes.length){snk('⚠️ أدخل الأكواد أولاً وقارنها');return;}
+  renderList();
+  goTo('navscreen','left');
+  // تهيئة الخريطة بعد انتهاء animation الانتقال
+  setTimeout(function(){
+    initMap();
+  },400);
+  startGeo();
+  // تحميل صور الزبائن في الخلفية
+  allCodes.forEach(function(item){
+    if(item.cid&&!imgCache[item.cid]){
+      IDB.getImage(item.cid).then(function(b64){
+        if(b64){imgCache[item.cid]=b64;}
+      }).catch(function(){});
+    }
+  });
+}
+
+function renderList(){
+  navSorted=[...allCodes].sort(function(a,b){
+    if(a.ps==='paid'&&b.ps!=='paid')return 1;if(a.ps!=='paid'&&b.ps==='paid')return-1;
+    var aD=a.ps==='locked'||a.ps==='notpaid',bD=b.ps==='locked'||b.ps==='notpaid';
+    if(aD&&!bD)return 1;if(!aD&&bD)return-1;
+    if(a.distance===null&&b.distance===null)return 0;if(a.distance===null)return 1;if(b.distance===null)return-1;
+    return a.distance-b.distance;
+  });
+  var vis=navSorted.filter(function(c){return c.ps!=='paid';});
+  document.getElementById('navBadge').textContent=vis.length+' زبون';
+  if(!vis.length){document.getElementById('navList').innerHTML='<div class="nav-empty"><div class="nav-empty-ico">🎉</div><div class="nav-empty-txt">أحسنت! انتهيت من جميع الزبائن 🚀</div></div>';document.getElementById('cartBanner').classList.remove('show');return;}
+  var html='';
+  vis.forEach(function(item){
+    var cls=dc(item.distance),dstr=dl(item.distance);
+    var isCart=item.distance!==null&&item.distance*1000<=CART_M&&item.ps!=='paid';
+    var stC=item.ps==='locked'?' st-locked':item.ps==='notpaid'?' st-notpaid':'';
+    var pushed=(item.ps==='locked'||item.ps==='notpaid')?' pushed':'';
+    var stChip=item.ps==='locked'?'<span class="st-chip locked">🔒 مقفل</span>':item.ps==='notpaid'?'<span class="st-chip notpaid">⏳ لم يدفع</span>':'';
+    var imgHtml=item.cid&&imgCache[item.cid]?'<img class="nci-img" src="'+imgCache[item.cid]+'" alt="" onclick="openModal(\''+item.cid+'\')">':'<div class="nci-ph">🏪</div>';
+    html+='<div class="nci'+stC+pushed+'" id="nci_'+item.code+'">'
+      +'<div class="nci-bar"></div>'
+      +'<div class="nci-main">'
+        +imgHtml
+        +'<div class="nci-info">'
+          +'<div class="nci-code">'+item.code+'</div>'
+          +'<div class="nci-name">'+(item.name||'—')+(stChip?' '+stChip:'')+'</div>'
+        +'</div>'
+        +'<div class="nci-rt">'
+          +'<span class="dist-badge '+cls+'">'+dstr+'</span>'
+          +(isCart?'<span class="cart-chip">🛒 عربة</span>':'')
+          +(item.lat?'<button onclick="navTo('+item.lat+','+item.lng+')" style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.22);border-radius:8px;padding:3px 8px;font-size:10px;font-weight:700;color:#22c55e;cursor:pointer;font-family:Cairo,sans-serif;margin-top:2px">🚗</button>':'')
+        +'</div>'
+        +(item.cid?'<button class="edit-wrench" onclick="openEdit(\''+item.code+'\')">🔧</button>':'')
+      +'</div>'
+      +'<div class="nci-actions">'
+        +'<button class="act act-paid" onclick="markPaid(\''+item.code+'\')">✅ تم الدفع</button>'
+        +'<button class="act act-lock" onclick="markLock(\''+item.code+'\')">🔒 مقفل</button>'
+        +'<button class="act act-np" onclick="openNP(\''+item.code+'\')">⏳ لم يدفع بعد</button>'
+      +'</div>'
+    +'</div>';
+  });
+  document.getElementById('navList').innerHTML=html;
+  updateETA();
+}
+
+/* ══ ETA — توقيت تقديري للانتهاء ══ */
+function updateETA(){
+  var remaining=navSorted.filter(function(c){return c.status==='found'&&c.ps!=='paid';});
+  var total=navSorted.filter(function(c){return c.status==='found';}).length;
+  var done=total-remaining.length;
+  var banner=document.getElementById('etaBanner');
+  if(!total){banner.classList.remove('show');return;}
+  banner.classList.add('show');
+  // تقدير: 8 دقائق لكل زبون (توزيع + تنقل)
+  var minsPerCustomer=8;
+  var totalMins=remaining.length*minsPerCustomer;
+  var endTime=new Date(Date.now()+totalMins*60000);
+  var hh=String(endTime.getHours()).padStart(2,'0');
+  var mm=String(endTime.getMinutes()).padStart(2,'0');
+  document.getElementById('etaMain').textContent='تقدم اليوم: '+done+'/'+total+' زبون — باقي '+remaining.length;
+  document.getElementById('etaSub').textContent='كل زبون ~8 دقائق — '+totalMins+' دقيقة متبقية';
+  document.getElementById('etaTime').textContent=hh+':'+mm;
+  // شريط تقدم في الـ badge
+  var pct=total>0?Math.round(done/total*100):0;
+  document.getElementById('navBadge').textContent=remaining.length+' زبون ('+pct+'%)';
+}
+
+/* ══ 3 أزرار ══ */
+function markPaid(code){
+  var item=allCodes.find(function(c){return c.code===code;});if(!item)return;
+  item.ps='paid';
+  snk('✅ تم دفع '+code+' — تم الحذف من القائمة','g');
+  renderList();drawMap();
+  saveCurrentSession(); // FIX 3: حفظ فوري عند كل تغيير
+  if(navigator.vibrate)navigator.vibrate(200);
+}
+
+function markLock(code){
+  var item=allCodes.find(function(c){return c.code===code;});if(!item)return;
+  if(item.ps==='locked'){
+    // رفع القفل مباشرة
+    item.ps='none';
+    snk('🔓 تم رفع القفل عن '+code,'');
+    renderList();drawMap();saveCurrentSession();
+    if(navigator.vibrate)navigator.vibrate([100,50,100]);
+  } else {
+    // فتح صفحة المؤقت بوضع "مقفل"
+    openNP(code,'locked');
+  }
+}
+
+/* not paid */
+var npCode=null,npDelay=15,npMode='notpaid';
+function openNP(code,mode){
+  var item=allCodes.find(function(c){return c.code===code;});if(!item)return;
+  npCode=code;npDelay=15;npMode=mode||'notpaid';
+  document.getElementById('npCode').textContent=code;
+  document.getElementById('npName').textContent=item.name||'—';
+  document.getElementById('npNote').value='';document.getElementById('customInp').value='';
+  document.querySelectorAll('.t-opt').forEach(function(e,i){i===0?e.classList.add('on'):e.classList.remove('on');});
+  // تغيير لون الصفحة حسب الوضع
+  var hdr=document.querySelector('#notpaidscreen .hdr');
+  var titleEl=document.querySelector('#notpaidscreen .hdr-title');
+  if(npMode==='locked'){
+    hdr.style.background='linear-gradient(135deg,#7f1d1d,#991b1b)';
+    titleEl.textContent='🔒 مقفل — تحديد وقت العودة';
+  } else {
+    hdr.style.background='linear-gradient(135deg,#92400e,#78350f)';
+    titleEl.textContent='⏳ لم يدفع بعد';
+  }
+  // رنين خفيف تنبيهي عند فتح الصفحة
+  try{
+    var ctx2=new(window.AudioContext||window.webkitAudioContext)();
+    var o=ctx2.createOscillator(),g=ctx2.createGain();
+    o.type='sine';o.frequency.value=npMode==='locked'?440:600;
+    g.gain.setValueAtTime(.5,ctx2.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ctx2.currentTime+.4);
+    o.connect(g);g.connect(ctx2.destination);
+    o.start();o.stop(ctx2.currentTime+.4);
+  }catch(e2){}
+  goTo('notpaidscreen','left');
+}
+function selTime(el,min){
+  npDelay=min;document.getElementById('customInp').value='';
+  document.querySelectorAll('.t-opt').forEach(function(e){e.classList.remove('on');});
+  el.classList.add('on');
+}
+function confirmNP(){
+  var cv=parseInt(document.getElementById('customInp').value);if(cv>0)npDelay=cv;
+  var item=allCodes.find(function(c){return c.code===npCode;});if(!item)return;
+  item.ps=npMode;item.delayMin=npDelay;
+  playAlarm(npMode==='locked'); // رنين قوي عند التأكيد
+  snk((npMode==='locked'?'🔒 مقفل':'⏳ لم يدفع')+' — سيعود بعد '+npDelay+' دقيقة','y');
+  goTo('navscreen','right');renderList();drawMap();
+  saveCurrentSession();
+}
+
+/* ══ دالة الرنين المركزية — تُستخدم في كل مكان ══ */
+function playAlarm(isLocked){
+  if(navigator.vibrate)navigator.vibrate([500,100,500,100,700]);
+  try{
+    var ctx=new(window.AudioContext||window.webkitAudioContext)();
+    var master=ctx.createGain();master.gain.value=1.0;master.connect(ctx.destination);
+    var f1=isLocked?480:750, f2=isLocked?240:375;
+    [0,.3,.6,1.0,1.4].forEach(function(t){
+      var o1=ctx.createOscillator(),g1=ctx.createGain();
+      o1.type='square';o1.frequency.value=f1;
+      g1.gain.setValueAtTime(0,ctx.currentTime+t);
+      g1.gain.linearRampToValueAtTime(1.0,ctx.currentTime+t+.03);
+      g1.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+t+.3);
+      o1.connect(g1);g1.connect(master);
+      o1.start(ctx.currentTime+t);o1.stop(ctx.currentTime+t+.32);
+      var o2=ctx.createOscillator(),g2=ctx.createGain();
+      o2.type='sawtooth';o2.frequency.value=f2;
+      g2.gain.setValueAtTime(0,ctx.currentTime+t);
+      g2.gain.linearRampToValueAtTime(0.7,ctx.currentTime+t+.03);
+      g2.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+t+.3);
+      o2.connect(g2);g2.connect(master);
+      o2.start(ctx.currentTime+t);o2.stop(ctx.currentTime+t+.32);
+    });
+  }catch(e){}
+}
+
+function navTo(lat,lng){
+  // FIX 4: Google Maps يحدد الموقع الحالي تلقائياً — أوثوق وأبسط
+  var url='https://www.google.com/maps/dir/?api=1&destination='+lat+','+lng+'&travelmode=driving';
+  window.open(url,'_blank');
+}
+
+/* ══ EDIT CUSTOMER ══ */
+var editCode=null,editNewPhoto=null;
+
+function openEdit(code){
+  var item=allCodes.find(function(c){return c.code===code;});
+  if(!item||!item.cid)return;
+  editCode=code;editNewPhoto=null;
+  // تحميل البيانات
+  document.getElementById('editCodeDisplay').textContent=code;
+  document.getElementById('editName').value=item.name||'';
+  document.getElementById('editPhone').value='';
+  document.getElementById('editNote').value='';
+  // الصورة
+  var thumb=document.getElementById('editPhotoThumb');
+  if(imgCache[item.cid]){
+    thumb.innerHTML='<img class="edit-photo-prev" src="'+imgCache[item.cid]+'" onclick="openModal(\''+item.cid+'\')">'; 
+  } else {
+    thumb.innerHTML='<div class="edit-photo-ph">🏪</div>';
+  }
+  // جلب البيانات الكاملة من IndexedDB
+  IDB.findByCodes([code]).then(function(map){
+    var rec=map[code];
+    if(rec){
+      document.getElementById('editName').value=rec.name||'';
+      document.getElementById('editPhone').value=rec.phone||'';
+      document.getElementById('editNote').value=rec.note||'';
+    }
+  }).catch(function(){});
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeEdit(){
+  document.getElementById('editModal').classList.remove('show');
+  editCode=null;editNewPhoto=null;
+}
+
+function editPhotoChange(input){
+  if(!input.files||!input.files[0])return;
+  var r=new FileReader();
+  r.onload=function(e){
+    compressImage(e.target.result,800,0.82,function(compressed){
+      editNewPhoto=compressed;
+      document.getElementById('editPhotoThumb').innerHTML=
+        '<img class="edit-photo-prev" src="'+compressed+'">';
+    });
+  };
+  r.readAsDataURL(input.files[0]);
+}
+
+async function saveEdit(){
+  var item=allCodes.find(function(c){return c.code===editCode;});
+  if(!item||!item.cid){closeEdit();return;}
+  var btn=document.getElementById('editSaveBtn');
+  btn.disabled=true;btn.textContent='⏳ جارٍ الحفظ...';
+  var newName=document.getElementById('editName').value.trim();
+  var newPhone=document.getElementById('editPhone').value.trim();
+  var newNote=document.getElementById('editNote').value.trim();
+  try{
+    // تحديث IndexedDB
+    await IDB.updateCustomer(item.cid,{
+      name:newName||null,
+      phone:newPhone||null,
+      note:newNote||null
+    });
+    // تحديث الصورة إن وُجدت
+    if(editNewPhoto){
+      await IDB.saveImage(item.cid,editNewPhoto);
+      imgCache[item.cid]=editNewPhoto;
+    }
+    // تحديث allCodes مباشرة
+    item.name=newName||null;
+    snk('✅ تم حفظ تعديلات الزبون '+editCode,'g');
+    closeEdit();
+    renderList();
+  }catch(e){
+    snk('❌ خطأ في الحفظ: '+(e.message||e));
+  }
+  btn.disabled=false;btn.textContent='💾 حفظ التعديلات';
+}
+
+/* ══ MODAL صورة ══ */
+function openModal(cid){var s=imgCache[cid];if(!s)return;document.getElementById('modalImg').src=s;document.getElementById('imgModal').classList.add('show');}
+function closeModal(){document.getElementById('imgModal').classList.remove('show');}
+</script>
+</body>
+</html>
