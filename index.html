@@ -39,7 +39,14 @@ var IDB=(function(){
     return open().then(function(d){
       return new Promise(function(res,rej){
         var r=d.transaction('customers','readwrite').objectStore('customers').add(data);
-        r.onsuccess=function(){res(r.result);};r.onerror=function(){rej(r.error);};
+        r.onsuccess=function(){res(r.result);};
+        r.onerror=function(){
+          if(r.error&&r.error.name==='ConstraintError'){
+            rej(new Error('DUPLICATE:'+data.code));
+          } else {
+            rej(r.error);
+          }
+        };
       });
     });
   }
@@ -128,6 +135,27 @@ function toggleDark(){
   try{localStorage.setItem('dark',isDark?'1':'0');}catch(e){}
 }
 (function(){try{if(localStorage.getItem('dark')==='1')toggleDark();}catch(e){}})();
+
+/* ══ goTo و snk — مطلوبتان فور تحميل الصفحة ══ */
+function goTo(id,dir){
+  var from=document.querySelector('.screen.active'),to=document.getElementById(id);
+  if(!to||to===from)return;
+  var outC=(id==='navscreen'||id==='notpaidscreen')?'left'
+    :(from&&(from.id==='navscreen'||from.id==='notpaidscreen')&&dir==='right')?'below'
+    :(dir==='left'?'left':'right');
+  if(from)from.className='screen '+outC;
+  to.className='screen active';
+}
+
+var _snkT;
+function snk(m,t){
+  var e=document.getElementById('snk');
+  if(!e)return;
+  e.className='snk show'+(t?' '+t:'');
+  e.textContent=m;
+  clearTimeout(_snkT);
+  _snkT=setTimeout(function(){e.classList.remove('show');},3500);
+}
 </script>
 <style>
 /* ══ CONSTANTS ══ */
@@ -510,290 +538,15 @@ textarea.inp{resize:none;min-height:70px;line-height:1.6;}
 </style>
 </head>
 <body>
-
-<!-- HOME -->
-<div class="screen active" id="home">
-  <div class="blobs"><div class="bl bl1"></div><div class="bl bl2"></div><div class="bl bl3"></div></div>
-  <div class="bubs" id="bubs"></div>
-  <div class="home-status-bar">
-    <div class="home-time" id="clk">9:41</div>
-    <div class="home-icons"><span>▲▲▲</span><span style="font-size:10px;font-weight:700">4G</span><span>🔋</span></div>
-  </div>
-  <div class="home-dark-tog" onclick="toggleDark()">
-    <span id="darkIcon" style="font-size:14px">☀️</span>
-    <div class="tog-track" id="togTrack"><div class="tog-thumb" id="togThumb"></div></div>
-    <span class="tog-lbl" id="togLbl">وضع عادي</span>
-  </div>
-  <div class="home-content">
-    <div class="logo-card">
-      <div class="logo-img">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" alt="Coca-Cola"
-          onerror="this.style.display='none';document.getElementById('lf1').style.display='block'">
-        <div id="lf1" style="font-family:Georgia,serif;font-size:clamp(36px,10vw,52px);font-weight:bold;font-style:italic;background:linear-gradient(135deg,#fff,#fff9c4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;display:none">Coca-Cola</div>
-      </div>
-      <svg class="wave" width="180" height="12" viewBox="0 0 180 12"><path d="M 8 9 Q 36 2 64 7 Q 90 12 116 6 Q 144 2 172 8" stroke="rgba(255,255,255,0.58)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-      <div class="divrow"><div class="divline"></div><span class="divstars">✦ ✦ ✦</span><div class="divline"></div></div>
-      <div class="sub-tag">Distributor Pro</div>
-    </div>
-  </div>
-  <div class="home-btns">
-    <div class="hdl"></div>
-    <div class="sec-row"><div class="sec-line"></div><span class="sec-txt">القائمة الرئيسية</span><div class="sec-line"></div></div>
-    <button class="btn-red" onclick="goTo('register','left')"><div class="ibx">👤</div>تسجيل الزبائن</button>
-    <button class="btn-out" onclick="goTo('distrib','left')"><div class="ibx">🚚</div>بدء عملية التوزيع</button>
-    <div class="spark-note"><div class="green-dot"></div> تخزين محلي 100% — بدون سحابة ✅</div>
-  </div>
-</div>
-
-<!-- REGISTER -->
-<div class="screen right" id="register">
-  <div class="hdr">
-    <button class="hdr-back" onclick="goTo('home','right')">←</button>
-    <span class="hdr-title">تسجيل زبون جديد</span>
-    <button class="dark-tog" onclick="toggleDark()"><span id="dIcon2">☀️</span></button>
-    <img class="hdr-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" onerror="this.style.display='none'" alt="">
-  </div>
-  <div class="reg-scroll">
-    <div class="fcard">
-      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">🔑 الكود</span><div class="fsec-line"></div></div>
-      <div class="fg">
-        <div class="flbl"><em>🔑</em> الكود الفريد <span class="req">إجباري</span></div>
-        <input class="code-inp" id="codeInp" type="tel" inputmode="numeric" maxlength="7" placeholder="1234567" oninput="onCodeInput(this)">
-        <div id="codeHint" style="font-size:11px;color:#aaa;margin-top:4px;text-align:center">أدخل كوداً فريداً</div>
-      </div>
-      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">📋 بيانات</span><div class="fsec-line"></div></div>
-      <div class="fg"><div class="flbl"><em>🧑</em> الاسم <span class="opt">اختياري</span></div><input class="inp" id="nmInp" type="text" placeholder="اسم الزبون أو المحل"></div>
-      <div class="fg"><div class="flbl"><em>📱</em> الهاتف <span class="opt">اختياري</span></div><div class="phwrap"><span class="phpre">+213</span><input class="inp" id="phInp" type="tel" inputmode="numeric" maxlength="10" placeholder="0xxxxxxxxx" oninput="this.value=this.value.replace(/\D/g,'')"></div></div>
-      <div class="fg">
-        <div class="flbl"><em>🏪</em> صورة الدكان <span class="opt">اختياري</span></div>
-        <div class="photo-up" id="puArea">
-          <input type="file" id="photoFile" accept="image/*" capture="environment" onchange="previewPhoto(this)">
-          <div class="pu-ico">📷</div>
-          <div class="pu-lbl">التقاط صورة — جودة كاملة بدون ضغط</div>
-        </div>
-        <div class="photo-prev" id="pprev"><img id="pimg" src="" alt=""><button class="rm-ph" onclick="removePhoto()">✕</button></div>
-      </div>
-      <div class="fg"><div class="flbl"><em>📝</em> ملاحظة <span class="opt">اختياري</span></div><textarea class="inp" id="ntInp" placeholder="أي ملاحظة..."></textarea></div>
-      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">📍 الموقع</span><div class="fsec-line"></div></div>
-      <div class="fg">
-        <div class="locc" id="lc" onclick="captureGPSNow()" style="cursor:pointer">
-          <div class="locico" id="li">📍</div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:700;color:var(--text2)">اضغط هنا لتحديد موقعك الآن</div>
-            <div class="locsub" id="ls">سيُحفظ الموقع قبل إدخال البيانات</div>
-          </div>
-          <span style="font-size:11px;font-weight:800;color:#E4002B;background:rgba(228,0,43,.09);border-radius:8px;padding:3px 9px;flex-shrink:0">▶ اضغط</span>
-        </div>
-      </div>
-      <button class="reg-btn" id="rb" onclick="doRegister()"><div class="spinw" id="sw"></div><span id="rbt">📥 تسجيل الزبون</span></button>
-    </div>
-  </div>
-  <div class="sov" id="sovReg">
-    <div class="sov-sc">✅</div><h2>تم التسجيل!</h2><p>تم الحفظ محلياً 💾</p>
-    <div class="sinfo" id="sinfoReg"></div>
-    <button class="sbk" onclick="afterRegOk()">↩ العودة</button>
-  </div>
-</div>
-
-<!-- DISTRIB -->
-<div class="screen right" id="distrib">
-  <div class="hdr">
-    <button class="hdr-back" onclick="goTo('home','right')">←</button>
-    <span class="hdr-title">ورقة التوزيع</span>
-    <button class="dark-tog" onclick="toggleDark()"><span id="dIcon3">☀️</span></button>
-    <img class="hdr-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" onerror="this.style.display='none'" alt="">
-  </div>
-  <div class="stats-bar">
-    <div class="stat-box"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">الكل</div></div>
-    <div class="stat-box g"><div class="stat-num" id="stFound">0</div><div class="stat-lbl">موجود</div></div>
-    <div class="stat-box r"><div class="stat-num" id="stMissing">0</div><div class="stat-lbl">غائب</div></div>
-    <div class="stat-box y"><div class="stat-num" id="stPages">0</div><div class="stat-lbl">ورقة</div></div>
-  </div>
-  <div class="dpanel" id="dpanel">
-    <div>
-      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">✏️ إدخال الأكواد</span><div class="sec-hdr-line"></div></div>
-      <div class="manual-main">
-        <div class="mm-lbl">الأكواد السباعية</div>
-        <div class="dot-progress" id="dotProgress">
-          <div class="dot" id="d0"></div><div class="dot" id="d1"></div><div class="dot" id="d2"></div>
-          <div class="dot" id="d3"></div><div class="dot" id="d4"></div><div class="dot" id="d5"></div>
-          <div class="dot" id="d6"></div>
-        </div>
-        <div class="man-row">
-          <input class="man-inp" id="manInp" type="tel" inputmode="numeric" maxlength="7" placeholder="0000000"
-            oninput="onManInput(this)" onkeydown="if(event.key==='Enter')addCode()">
-          <button class="man-add" onclick="addCode()">➕</button>
-        </div>
-        <div class="man-hint" id="manHint">اكتب 7 أرقام — تتحول للأخضر تلقائياً</div>
-        <div class="chips-wrap" id="chipsWrap"></div>
-        <div class="chip-cnt" id="chipCnt" style="display:none"></div>
-        <button class="cmp-btn" id="cmpBtn" onclick="compareAll()" style="display:none;margin-top:10px">
-          <span id="cmpTxt">🔍 مقارنة مع القاعدة المحلية</span>
-        </button>
-      </div>
-    </div>
-    <div id="uploadSec">
-      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">📄 أو ارفع ورقة (OCR)</span><div class="sec-hdr-line"></div></div>
-      <div class="up-area"><input type="file" id="mainFile" accept="image/*" multiple onchange="addPages(this.files)"><div class="up-ico">📄</div><div class="up-lbl">ارفع صورة ورقة التوزيع</div><div class="up-sub">يمكن رفع أكثر من ورقة دفعة واحدة</div></div>
-    </div>
-    <div id="pagesWrap" style="display:none">
-      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">🗂️ الأوراق</span><div class="sec-hdr-line"></div></div>
-      <div class="pg-strip" id="pgStrip">
-        <div class="add-pg-btn"><input type="file" id="addMoreFile" accept="image/*" multiple onchange="addPages(this.files)"><div>➕</div><div class="add-pg-lbl">إضافة</div></div>
-      </div>
-    </div>
-    <button class="proc-btn" id="procBtn" onclick="startOCR()" style="display:none" disabled>
-      <span id="procTxt">🔍 استخراج الأكواد ومقارنتها</span>
-    </button>
-    <div class="prog-wrap" id="progWrap">
-      <div class="prog-row"><span class="prog-lbl" id="progLbl">جارٍ...</span><span class="prog-pct" id="progPct">0%</span></div>
-      <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
-      <div class="prog-step" id="progStep"></div>
-    </div>
-    <div class="dpanel-spacer"></div>
-  </div>
-  <div class="fab-row" id="fabRow">
-    <button class="start-fab green" onclick="goToNav()">🗺️ بدء التوزيع</button>
-    <button class="start-fab red" onclick="resetDay()">🔄 يوم جديد</button>
-  </div>
-</div>
-
-<!-- NAV SCREEN -->
-<div class="screen below" id="navscreen" style="overflow:hidden;">
-  <div class="nav-hdr">
-    <button class="nav-hdr-back" onclick="stopGeo();goTo('distrib','right')">←</button>
-    <span class="nav-hdr-title">🗺️ مسار التوزيع</span>
-    <div class="nav-hdr-badge" id="navBadge">0 زبون</div>
-  </div>
-  <!-- Google Maps -->
-  <div class="map-top">
-    <div id="gmap"></div>
-    <!-- مؤشر تحميل المسار -->
-  <div id="routeLoadingBadge" style="display:none;position:absolute;top:8px;right:50%;transform:translateX(50%);background:rgba(0,0,0,.75);backdrop-filter:blur(8px);border-radius:20px;padding:5px 14px;color:#22c55e;font-size:11px;font-weight:800;font-family:Cairo,sans-serif;z-index:10;align-items:center;gap:6px">
-    <span style="animation:spin .8s linear infinite;display:inline-block">⟳</span> جارٍ رسم المسار...
-  </div>
-  <div class="map-ctrl-row">
-    <button class="map-btn green" onclick="openRoute()">🚗 ملاحة كاملة</button>
-    <button class="map-btn" onclick="centerMe()">📍 موقعي</button>
-  </div>
-  </div>
-  <!-- بانر العربة 300م -->
-  <div class="cart-banner" id="cartBanner">
-    <span style="font-size:20px">🛒</span>
-    <div>
-      <div class="cart-banner-txt" id="cartTxt">استخدم العربة!</div>
-      <div class="cart-banner-sub">المسافة أقل من 300 متر — لا تحرك الشاحنة</div>
-    </div>
-  </div>
-  <!-- بانر التوقيت التقديري لليوم -->
-  <div id="etaBanner" style="display:none;background:linear-gradient(135deg,#1a1a2e,#16213e);border-bottom:1px solid rgba(99,102,241,.25);padding:7px 14px;flex-shrink:0;flex-direction:row;align-items:center;gap:10px;">
-    <span style="font-size:18px">📊</span>
-    <div style="flex:1">
-      <div id="etaMain" style="font-size:12px;font-weight:800;color:#818cf8"></div>
-      <div id="etaSub" style="font-size:10px;color:rgba(129,140,248,.7);margin-top:1px"></div>
-    </div>
-    <div id="etaTime" style="font-size:20px;font-weight:900;color:#818cf8;font-family:monospace"></div>
-  </div>
-  <div class="nav-list-wrap"><div id="navList"></div></div>
-</div>
-
-<!-- NOT PAID SCREEN -->
-<div class="screen below" id="notpaidscreen">
-  <div class="hdr" style="background:linear-gradient(135deg,#92400e,#78350f)">
-    <button class="hdr-back" onclick="goTo('navscreen','right')">←</button>
-    <span class="hdr-title">⏳ لم يدفع بعد</span>
-  </div>
-  <div class="np-scroll">
-    <div class="np-card">
-      <div class="np-title">⚠️ تفاصيل الزبون</div>
-      <div class="np-cust-box">
-        <div class="np-code" id="npCode">—</div>
-        <div class="np-name" id="npName">—</div>
-      </div>
-      <div class="np-lbl">⏱️ اختر وقت العودة</div>
-      <div class="time-grid">
-        <div class="t-opt on" onclick="selTime(this,15)"><div class="t-min">15</div><div class="t-lbl">دقيقة</div></div>
-        <div class="t-opt" onclick="selTime(this,30)"><div class="t-min">30</div><div class="t-lbl">دقيقة</div></div>
-        <div class="t-opt" onclick="selTime(this,45)"><div class="t-min">45</div><div class="t-lbl">دقيقة</div></div>
-        <div class="t-opt" onclick="selTime(this,60)"><div class="t-min">1</div><div class="t-lbl">ساعة</div></div>
-        <div class="t-opt" onclick="selTime(this,90)"><div class="t-min">1.5</div><div class="t-lbl">ساعة</div></div>
-        <div class="t-opt" onclick="selTime(this,120)"><div class="t-min">2</div><div class="t-lbl">ساعة</div></div>
-      </div>
-      <div class="np-lbl">أو وقت مخصص (دقائق)</div>
-      <input class="custom-inp" id="customInp" type="number" inputmode="numeric" min="1" max="480" placeholder="مثال: 25">
-      <div class="np-lbl">📝 ملاحظة</div>
-      <textarea class="np-note" id="npNote" placeholder="سبب التأجيل..."></textarea>
-      <button class="np-confirm" onclick="confirmNP()">⏳ تأكيد — سأعود لاحقاً</button>
-    </div>
-  </div>
-</div>
-
-<!-- EDIT MODAL -->
-<div class="edit-modal" id="editModal">
-  <div class="edit-overlay" onclick="closeEdit()"></div>
-  <div class="edit-sheet">
-    <div class="edit-sheet-hdl"></div>
-    <div class="edit-sheet-hdr">
-      <div class="edit-sheet-title">🔧 تعديل بيانات الزبون</div>
-      <button class="edit-close" onclick="closeEdit()">✕</button>
-    </div>
-    <div class="edit-body">
-      <div class="edit-fg">
-        <div class="edit-lbl">🔑 الكود</div>
-        <div id="editCodeDisplay" style="font-size:22px;font-weight:900;font-family:monospace;color:#E4002B;letter-spacing:3px;padding:8px 0"></div>
-      </div>
-      <div class="edit-fg">
-        <div class="edit-lbl">🧑 الاسم</div>
-        <input class="edit-inp" id="editName" type="text" placeholder="اسم الزبون أو المحل">
-      </div>
-      <div class="edit-fg">
-        <div class="edit-lbl">📱 الهاتف</div>
-        <input class="edit-inp" id="editPhone" type="tel" inputmode="numeric" placeholder="0xxxxxxxxx">
-      </div>
-      <div class="edit-fg">
-        <div class="edit-lbl">📝 ملاحظة</div>
-        <textarea class="edit-inp" id="editNote" rows="2" style="resize:none"></textarea>
-      </div>
-      <div class="edit-fg">
-        <div class="edit-lbl">🏪 الصورة</div>
-        <div class="edit-photo-row">
-          <div id="editPhotoThumb"><div class="edit-photo-ph">🏪</div></div>
-          <div class="edit-photo-btn">
-            <input type="file" accept="image/*" capture="environment" onchange="editPhotoChange(this)">
-            <div class="edit-photo-btn-lbl">📷 تغيير الصورة</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:3px">اضغط للتقاط أو اختيار</div>
-          </div>
-        </div>
-      </div>
-      <button class="edit-save-btn" id="editSaveBtn" onclick="saveEdit()">💾 حفظ التعديلات</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal صورة -->
-<div class="img-modal" id="imgModal" onclick="closeModal()">
-  <img id="modalImg" src="" alt="">
-  <button class="img-modal-close">✕</button>
-</div>
-
-<!-- تنبيه Geofence -->
-<div class="geo-alert" id="geoAlert">
-  <div class="geo-inner">
-    <div class="geo-ico" id="geoIco">⚠️</div>
-    <div class="geo-txt">
-      <div class="geo-title" id="geoTitle">تنبيه!</div>
-      <div class="geo-sub" id="geoSub"></div>
-    </div>
-    <button class="geo-close" onclick="closeGeo()">✕</button>
-  </div>
-</div>
-
-<div class="snk" id="snk"></div>
-
 <script>
 /* ══ CONSTANTS ══ */
 var CART_M = 300;   /* مسافة العربة: 300 متر */
 var GEO_M  = 500;   /* مسافة Geofence: 500 متر */
+
+/* ══ API Keys للـ OCR ══ */
+var GEMINI_API_KEY  = 'AIzaSyALmYzxDovZzjyh9UvKxTk-2llClAE4EWA';
+var MISTRAL_API_KEY = '';  /* console.mistral.ai — مجاني 1M token/شهر */
+var CLAUDE_API_KEY  = '';  /* console.anthropic.com — مدفوع */
 
 /* ══ BUBBLES ══ */
 (function(){var bc=document.getElementById('bubs'),f=document.createDocumentFragment();for(var i=0;i<16;i++){var b=document.createElement('div');b.className='bub';var s=3+Math.random()*10;b.style.cssText='width:'+s+'px;height:'+s+'px;left:'+(Math.random()*100)+'%;bottom:'+(Math.random()*60)+'%;animation-duration:'+(5+Math.random()*9)+'s;animation-delay:'+(Math.random()*9)+'s;';f.appendChild(b);}bc.appendChild(f);})();
@@ -804,18 +557,9 @@ tick();setInterval(tick,30000);
 
 /* ══ DARK MODE — defined in IDB block above ══ */
 
-/* ══ ROUTER ══ */
-function goTo(id,dir){
-  var from=document.querySelector('.screen.active'),to=document.getElementById(id);
-  if(!to||to===from)return;
-  var outC=(id==='navscreen'||id==='notpaidscreen')?'left':(from&&(from.id==='navscreen'||from.id==='notpaidscreen')&&dir==='right')?'below':(dir==='left'?'left':'right');
-  if(from)from.className='screen '+outC;
-  to.className='screen active';
-}
+/* ══ ROUTER — defined in bootstrap above ══ */
 
-/* ══ SNACK ══ */
-var snkT;
-function snk(m,t){var e=document.getElementById('snk');e.className='snk show'+(t?' '+t:'');e.textContent=m;clearTimeout(snkT);snkT=setTimeout(function(){e.classList.remove('show');},3500);}
+/* ══ SNACK — defined in bootstrap above ══ */
 
 /* ══ GOOGLE MAPS ══ */
 /* ══ LEAFLET MAP — OpenStreetMap — مجاني 100% ══ */
@@ -1182,66 +926,124 @@ function onCodeInput(inp){
 /* ══ الموقع المحفوظ مسبقاً بالضغط على البنر ══ */
 var pendingCoords=null;
 
+/* ═══════════════════════════════════════════
+   نظام GPS الاحترافي — هدف: ≤ 10 متر
+   يجمع readings متعددة ويأخذ الأدق
+═══════════════════════════════════════════ */
+var GPS_TARGET_M = 10;   // الهدف: 10 متر أو أقل
+var GPS_MAX_WAIT = 30000; // انتظار أقصى 30 ثانية
+var GPS_MAX_READINGS = 8; // أخذ حتى 8 قراءات
+
 function captureGPSNow(){
   var lc=document.getElementById('lc');
   var li=document.getElementById('li');
   var ls=document.getElementById('ls');
-  // لا تعيد التحديد إذا خُذ مسبقاً
   if(lc.classList.contains('done'))return;
-  lc.className='locc pulsing';
-  li.textContent='🔄';li.className='locico spin';
-  ls.textContent='جارٍ تحديد الموقع...';
   if(!navigator.geolocation){
     ls.textContent='GPS غير متاح في هذا الجهاز';
     lc.className='locc';li.textContent='⚠️';li.className='locico';
     return;
   }
-  navigator.geolocation.getCurrentPosition(
-    function(p){
-      pendingCoords={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
-      lc.className='locc done';
-      li.textContent='✅';li.className='locico ok';
-      ls.innerHTML='<span style="color:#22c55e;font-weight:700">📍 '+pendingCoords.lat.toFixed(5)+', '+pendingCoords.lng.toFixed(5)+' (±'+pendingCoords.acc+'م)</span>';
-      // أزل زر "اضغط"
-      var btn=lc.querySelector('span');if(btn)btn.style.display='none';
-      snk('✅ تم تحديد موقعك — أضف البيانات الآن','g');
+  lc.className='locc pulsing';
+  li.textContent='🔄';li.className='locico spin';
+  ls.textContent='جارٍ تحسين الدقة...';
+
+  getGPSPrecise(function(coords,acc){
+    // نجح — حفظ الإحداثيات
+    pendingCoords={lat:coords.lat,lng:coords.lng,acc:acc};
+    lc.className='locc done';
+    li.textContent='✅';li.className='locico ok';
+    var color=acc<=10?'#22c55e':acc<=20?'#f59e0b':'#ef4444';
+    ls.innerHTML='<span style="color:'+color+';font-weight:700">📍 '+
+      coords.lat.toFixed(6)+', '+coords.lng.toFixed(6)+
+      ' <b>(±'+acc+'م)</b></span>';
+    var btn=lc.querySelector('span');if(btn)btn.style.display='none';
+    var msg=acc<=10?'✅ دقة ممتازة ±'+acc+'م':
+            acc<=20?'✅ دقة جيدة ±'+acc+'م — يُنصح بالخروج للهواء الطلق':
+                    '⚠️ دقة ±'+acc+'م — تم الحفظ بأفضل قراءة متاحة';
+    snk(msg,acc<=10?'g':'y');
+  },function(err){
+    lc.className='locc';li.textContent='⚠️';li.className='locico';
+    ls.textContent='تعذّر تحديد الموقع — حاول مرة أخرى';
+    snk('⚠️ '+err,'y');
+  },function(acc,count){
+    // تحديث مباشر أثناء التحسين
+    var pct=Math.round((1-acc/60)*100);
+    ls.innerHTML='<span style="color:#f59e0b;font-weight:700">🔄 تحسين الدقة... ±'+acc+'م (قراءة '+count+')</span>';
+  });
+}
+
+function getGPSPrecise(onSuccess,onError,onProgress){
+  // يجمع readings متعددة ويختار الأدق
+  var readings=[];
+  var watchId=null;
+  var timer=null;
+  var done=false;
+
+  function finish(best){
+    if(done)return;
+    done=true;
+    if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}
+    if(timer){clearTimeout(timer);timer=null;}
+    if(!best){onError('لم يتم الحصول على موقع');return;}
+    onSuccess({lat:best.latitude,lng:best.longitude},Math.round(best.accuracy));
+  }
+
+  // timeout إجمالي
+  timer=setTimeout(function(){
+    // انتهى الوقت — خذ أفضل ما عندنا
+    if(readings.length>0){
+      var best=readings.reduce(function(a,b){return a.accuracy<b.accuracy?a:b;});
+      finish(best);
+    } else {
+      if(!done){done=true;onError('انتهت مهلة GPS — اخرج لمكان مكشوف');}
+    }
+  },GPS_MAX_WAIT);
+
+  watchId=navigator.geolocation.watchPosition(
+    function(pos){
+      if(done)return;
+      var c=pos.coords;
+      readings.push({latitude:c.latitude,longitude:c.longitude,accuracy:c.accuracy});
+      if(onProgress)onProgress(Math.round(c.accuracy),readings.length);
+
+      // وصلنا للهدف؟
+      if(c.accuracy<=GPS_TARGET_M){
+        finish(c);
+        return;
+      }
+      // جمعنا كافة القراءات المطلوبة؟
+      if(readings.length>=GPS_MAX_READINGS){
+        var best=readings.reduce(function(a,b){return a.accuracy<b.accuracy?a:b;});
+        finish(best);
+      }
     },
     function(err){
-      lc.className='locc';li.textContent='⚠️';li.className='locico';
-      ls.textContent='تعذّر تحديد الموقع — حاول مجدداً';
-      snk('⚠️ فشل GPS — تحقق من الإذن','y');
+      if(readings.length>0){
+        var best=readings.reduce(function(a,b){return a.accuracy<b.accuracy?a:b;});
+        finish(best);
+      } else {
+        if(!done){done=true;onError('رفض إذن GPS');}
+        if(timer){clearTimeout(timer);timer=null;}
+      }
     },
-    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+    {enableHighAccuracy:true,maximumAge:0,timeout:GPS_MAX_WAIT}
   );
 }
 
 function getGPS(){
+  // نسخة Promise من نظام GPS الدقيق
   return new Promise(function(res,rej){
     if(!navigator.geolocation){rej(new Error('no-gps'));return;}
-    var opt={enableHighAccuracy:true,timeout:20000,maximumAge:0};
-    navigator.geolocation.getCurrentPosition(function(p){
-      // محاولة أولى — إذا دقيقة جداً، أرجعها مباشرة
-      if(p.coords.accuracy<=20){res(p);return;}
-      // محاولة ثانية للحصول على دقة أفضل
-      setTimeout(function(){
-        navigator.geolocation.getCurrentPosition(function(p2){
-          var best=p2.coords.accuracy<p.coords.accuracy?p2:p;
-          // الدقة المطلوبة: 20 متر أو أقل
-          if(best.coords.accuracy>20){
-            rej(new Error('accuracy_low:'+Math.round(best.coords.accuracy)));
-            return;
-          }
-          res(best);
-        },function(){
-          // إذا فشلت المحاولة الثانية، نستخدم الأولى لكن نتحقق من دقتها
-          if(p.coords.accuracy>20){
-            rej(new Error('accuracy_low:'+Math.round(p.coords.accuracy)));
-            return;
-          }
-          res(p);
-        },opt);
-      },2000);
-    },rej,opt);
+    getGPSPrecise(
+      function(coords,acc){
+        res({coords:{latitude:coords.lat,longitude:coords.lng,accuracy:acc}});
+      },
+      function(err){
+        rej(new Error('accuracy_low:'+err));
+      },
+      null
+    );
   });
 }
 async function doRegister(){
@@ -1281,7 +1083,30 @@ async function doRegister(){
     if(photoB64)await IDB.saveImage(newId,photoB64);
     document.getElementById('sinfoReg').innerHTML='<div class="srow"><span>🔑 الكود</span><span class="sval">'+code+'</span></div>'+(nm?'<div class="srow"><span>👤 الاسم</span><span class="sval">'+nm+'</span></div>':'')+(coords?'<div class="srow"><span>📍 دقة GPS</span><span class="sval">±'+coords.acc+'م</span></div>':'')+'<div class="srow"><span>🖼️ صورة</span><span class="sval">'+(photoB64?'محفوظة ✅':'—')+'</span></div>';
     document.getElementById('sovReg').classList.add('show');
-  }catch(err){snk('❌ '+(err.message||err));}
+  }catch(err){
+    if(err.message&&err.message.startsWith('DUPLICATE:')){
+      var dc=err.message.split(':')[1];
+      // جلب بيانات الزبون القديم وفتح modal الخيار
+      IDB.findByCodes([dc]).then(function(map){
+        var oldRec=map[dc];
+        var newData={
+          name:nm||null,phone:ph||null,note:nt||null,
+          latitude:coords?coords.lat:null,
+          longitude:coords?coords.lng:null,
+          accuracy:coords?coords.acc:null,
+          photoB64:photoB64,
+          hasPhoto:!!photoB64
+        };
+        showDupModal(dc,oldRec||{id:null,name:'—'},newData);
+        // لا نعيد تفعيل الزر هنا — dupModal يتكفل بذلك
+      }).catch(function(){
+        snk('⚠️ الكود '+dc+' مسجل مسبقاً','y');
+      });
+      return; // لا تعيد تفعيل الزر هنا
+    } else {
+      snk('❌ '+(err.message||err));
+    }
+  }
   rb.disabled=false;sw.style.display='none';rbt.textContent='📥 تسجيل الزبون';
 }
 function afterRegOk(){
@@ -1318,7 +1143,37 @@ function clearCodesMap(){codesMap={};allCodes=[];}
 function hav(a,b,c,d){var R=6371,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180;var x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dG/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
 function dc(km){if(km===null)return'unknown';if(km<2)return'close';if(km<5)return'mid';return'far';}
 function dl(km){if(km===null)return'بدون موقع';if(km<1)return Math.round(km*1000)+'م';return km.toFixed(1)+'كم';}
-function extract7(t){return[...new Set((t.match(/\b\d{7}\b/g)||[]))];}
+function extract7(rawText){
+  // ═══ الخطوة 1: إصلاح الأرقام المكسورة على سطرين ═══
+  // مثال: "319 -\n9098 - AG" → "3199098 - AG"
+  var t=rawText.replace(/(\d{2,5})\s*-\s*
+\s*(\d{2,5})/g,function(m,a,b){
+    var combined=a+b;
+    return combined.length===7?combined:m;
+  });
+
+  // ═══ الخطوة 2: إصلاح الأحرف المتشابهة ═══
+  t=t.replace(/[oO]/g,'0')
+     .replace(/[lI|]/g,'1')
+     .replace(/[B]/g,'8');
+
+  // ═══ الخطوة 3: استخراج الأرقام المنفصلة بمسافة ═══
+  // مثال: "319 9098" → "3199098"
+  t=t.replace(/(\d{2,5})\s(\d{2,5})/g,function(m,a,b){
+    var combined=a+b;
+    return combined.length===7?combined:m;
+  });
+
+  // ═══ الخطوة 4: استخراج كل 7 أرقام ═══
+  var found=[];
+  var matches=t.match(/(?<!\d)\d{7}(?!\d)/g)||[];
+  matches.forEach(function(m){
+    if((m[0]==='1'||m[0]==='3')&&found.indexOf(m)===-1){
+      found.push(m);
+    }
+  });
+  return found;
+}
 function updateStats(){
   var t=allCodes.length,f=allCodes.filter(function(c){return c.status==='found';}).length;
   document.getElementById('stTotal').textContent=t;
@@ -1406,28 +1261,257 @@ function addPages(files){
 }
 function addThumb(pg,idx){var strip=document.getElementById('pgStrip');var ab=strip.querySelector('.add-pg-btn');var div=document.createElement('div');div.className='pg-thumb';div.id='thumb_'+idx;div.innerHTML='<img src="'+pg.dataUrl+'"><div class="pg-badge">'+(idx+1)+'</div><div class="pg-count">—</div>';strip.insertBefore(div,ab);}
 async function startOCR(){
-  if(!pages.length){snk('⚠️ لم يتم رفع أي ورقة');return;}
+  if(!pages.length){snk('\u26a0\ufe0f \u0644\u0645 \u064a\u062a\u0645 \u0631\u0641\u0639 \u0623\u064a \u0648\u0631\u0642\u0629');return;}
   var btn=document.getElementById('procBtn'),pw=document.getElementById('progWrap');
-  btn.disabled=true;document.getElementById('procTxt').textContent='⏳ جارٍ...';pw.style.display='block';setP(0,'تهيئة OCR...','');
+  btn.disabled=true;pw.style.display='block';
+  setP(0,'\ud83e\udd16 \u062c\u0627\u0631\u064d \u062a\u062d\u0644\u064a\u0644 \u0627\u0644\u0648\u0631\u0642\u0629 \u0628\u0640 AI...','\u062f\u0642\u0629 98%+');
   await getLocation();
-  try{if(!ocrWorker){ocrWorker=await Tesseract.createWorker('eng',1,{logger:function(){}});await ocrWorker.setParameters({tessedit_char_whitelist:'0123456789 \n',tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'});}}catch(e){snk('❌ فشل OCR');btn.disabled=false;return;}
   var ocr7=[];
-  for(var i=0;i<pages.length;i++){setP(10+Math.round((i/pages.length)*52),'قراءة الورقة '+(i+1)+'...','');try{var cv=await preproc(pages[i].dataUrl);var rs=await ocrWorker.recognize(cv);var codes=extract7(rs.data.text);pages[i].codes=codes;var th=document.getElementById('thumb_'+i);if(th)th.querySelector('.pg-count').textContent=codes.length+' كود';ocr7.push(...codes);}catch(e){}}
-  var uOCR=[...new Set(ocr7)];setP(68,'بحث محلي...','');
+  for(var i=0;i<pages.length;i++){
+    setP(5+Math.round((i/pages.length)*80),'\ud83e\udd16 \u062a\u062d\u0644\u064a\u0644 \u0627\u0644\u0648\u0631\u0642\u0629 '+(i+1)+'/'+pages.length+'...','');
+    try{
+      // السلسلة: Gemini (مجاني) → Mistral (مجاني) → Claude (مدفوع) → Tesseract (offline)
+      var codes=await ocrChain(pages[i].dataUrl,i);
+      pages[i].codes=codes;
+      var th=document.getElementById('thumb_'+i);
+      if(th)th.querySelector('.pg-count').textContent=codes.length+' \u0643\u0648\u062f \u2728';
+      ocr7.push.apply(ocr7,codes);
+      setP(5+Math.round(((i+1)/pages.length)*80),'\u2705 \u0627\u0644\u0648\u0631\u0642\u0629 '+(i+1)+' \u2014 '+codes.length+' \u0643\u0648\u062f','');
+    }catch(e){
+      console.warn('Claude OCR failed, fallback to Tesseract:',e.message);
+      try{
+        var codes2=await ocrWithTesseract(pages[i].dataUrl,i);
+        pages[i].codes=codes2;
+        var th2=document.getElementById('thumb_'+i);
+        if(th2)th2.querySelector('.pg-count').textContent=codes2.length+' \u0643\u0648\u062f';
+        ocr7.push.apply(ocr7,codes2);
+      }catch(e2){console.error('Tesseract also failed:',e2);}
+    }
+  }
+  var uOCR=[...new Set(ocr7)];
+  setP(88,'\ud83d\udd0d \u0645\u0642\u0627\u0631\u0646\u0629 \u0645\u0639 \u0642\u0627\u0639\u062f\u0629 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a...','');
   try{
     var lm=await IDB.findByCodes([...new Set([...uOCR,...manCodes])]);
-    // FIX 4: upsertCode يمنع التكرار تلقائياً
-    uOCR.forEach(function(code){var r=lm[code];var dist=null;if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);upsertCode(code,{code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'ocr',ps:'none'});});
-    manCodes.forEach(function(code){var r=lm[code];var dist=null;if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);upsertCode(code,{code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'manual',ps:'none'});});
-  }catch(e){}
-  renderChips();updateStats();saveCurrentSession();setP(100,'✅ اكتملت!','');setTimeout(function(){pw.style.display='none';},700);
-  // FIX 1: إنهاء Worker بعد الانتهاء لتحرير الذاكرة
+    uOCR.forEach(function(code){
+      var r=lm[code];var dist=null;
+      if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);
+      upsertCode(code,{code:code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'ocr',ps:'none'});
+    });
+    manCodes.forEach(function(code){
+      var r=lm[code];var dist=null;
+      if(r&&r.latitude!=null&&userLat!=null)dist=hav(userLat,userLng,r.latitude,r.longitude);
+      upsertCode(code,{code:code,status:r?'found':'missing',name:r?r.name:null,cid:r?r.id:null,distance:dist,lat:r?r.latitude:null,lng:r?r.longitude:null,source:'manual',ps:'none'});
+    });
+  }catch(e){snk('\u274c \u062e\u0637\u0623: '+(e.message||e));}
+  renderChips();updateStats();saveCurrentSession();
+  setP(100,'\u2705 \u0627\u0643\u062a\u0645\u0644 \u0627\u0644\u062a\u062d\u0644\u064a\u0644!','');
+  setTimeout(function(){pw.style.display='none';},800);
   if(ocrWorker){try{ocrWorker.terminate();ocrWorker=null;}catch(e){}}
-  btn.disabled=false;document.getElementById('procTxt').textContent='🔄 إعادة المعالجة';
+  btn.disabled=false;
+  document.getElementById('procTxt').textContent='\ud83d\udd04 \u0625\u0639\u0627\u062f\u0629 \u0627\u0644\u062a\u062d\u0644\u064a\u0644';
   var ff=allCodes.filter(function(c){return c.status==='found';}).length;
-  snk('✅ '+allCodes.length+' كود — موجود: '+ff,'g');
+  snk('\u2705 '+allCodes.length+' \u0643\u0648\u062f \u2014 \u0645\u0648\u062c\u0648\u062f: '+ff,'g');
 }
-function preproc(dataUrl){return new Promise(function(res){var img=new Image();img.onload=function(){var cv=document.createElement('canvas'),sc=2;cv.width=img.width*sc;cv.height=img.height*sc;var ctx=cv.getContext('2d');ctx.drawImage(img,0,0,cv.width,cv.height);var id=ctx.getImageData(0,0,cv.width,cv.height),d=id.data;for(var i=0;i<d.length;i+=4){var g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];var v=g>145?255:0;d[i]=d[i+1]=d[i+2]=v;}ctx.putImageData(id,0,0);res(cv);};img.src=dataUrl;});}
+
+/* ══ سلسلة OCR الذكية: Gemini → Mistral → Claude → Tesseract ══ */
+async function ocrChain(dataUrl,pageIdx){
+  // 1. Gemini — مجاني تماماً
+  if(GEMINI_API_KEY&&GEMINI_API_KEY.trim()!==''){
+    try{
+      var c=await ocrWithGemini(dataUrl,pageIdx);
+      console.log('Gemini succeeded:',c);
+      return c;
+    }catch(e){console.warn('Gemini failed:',e.message);}
+  }
+  // 2. Mistral — مجاني
+  if(MISTRAL_API_KEY&&MISTRAL_API_KEY.trim()!==''){
+    try{
+      var c2=await ocrWithMistral(dataUrl,pageIdx);
+      console.log('Mistral succeeded:',c2);
+      return c2;
+    }catch(e){console.warn('Mistral failed:',e.message);}
+  }
+  // 3. Claude — مدفوع
+  if(CLAUDE_API_KEY&&CLAUDE_API_KEY.trim()!==''){
+    try{
+      var c3=await ocrWithClaude(dataUrl,pageIdx);
+      console.log('Claude succeeded:',c3);
+      return c3;
+    }catch(e){console.warn('Claude failed:',e.message);}
+  }
+  // 4. Tesseract — offline fallback دائماً
+  throw new Error('use-tesseract');
+}
+
+/* ══ Google Gemini Vision — مجاني 100% بدون بطاقة بنكية ══ */
+async function ocrWithGemini(dataUrl,pageIdx){
+  if(!GEMINI_API_KEY||!GEMINI_API_KEY.trim())throw new Error('no Gemini key');
+  var base64=dataUrl.split(',')[1];
+  var mimeMatch=dataUrl.match(/data:([^;]+);/);
+  var mime=mimeMatch?mimeMatch[1]:'image/jpeg';
+  var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+GEMINI_API_KEY;
+  var response=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents:[{
+        parts:[
+          {inline_data:{mime_type:mime,data:base64}},
+          {text:'هذه ورقة توزيع Coca-Cola. استخرج فقط الأكواد الرقمية المكونة من 7 أرقام بالضبط (مثل: 3199098، 3807183). تجاهل كل النصوص والأسماء والأرقام الأخرى. أرجع الأكواد فقط مفصولة بفاصلة بدون أي نص آخر. مثال على الإجابة الصحيحة: 3199098,3807183,3800507'}
+        ]
+      }],
+      generationConfig:{maxOutputTokens:512,temperature:0}
+    })
+  });
+  if(!response.ok){
+    var err=await response.json().catch(function(){return {};});
+    throw new Error('Gemini '+(response.status)+(err.error?': '+err.error.message:''));
+  }
+  var data=await response.json();
+  var text='';
+  try{text=data.candidates[0].content.parts[0].text;}catch(e){}
+  console.log('Gemini page '+(pageIdx+1)+':',text);
+  var codes=[];
+  var matches=text.match(/\d{7}/g)||[];
+  matches.forEach(function(m){
+    if((m[0]==='1'||m[0]==='3')&&codes.indexOf(m)===-1)codes.push(m);
+  });
+  if(!codes.length)throw new Error('Gemini: no codes found');
+  return codes;
+}
+
+/* ══ Mistral Vision OCR — مجاني 100% ══ */
+async function ocrWithMistralOrClaude(dataUrl,pageIdx){
+  return ocrChain(dataUrl,pageIdx);
+}
+
+async function ocrWithMistral(dataUrl,pageIdx){
+  var base64=dataUrl.split(',')[1];
+  var mimeMatch=dataUrl.match(/data:([^;]+);/);
+  var mime=mimeMatch?mimeMatch[1]:'image/jpeg';
+  var response=await fetch('https://api.mistral.ai/v1/chat/completions',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization':'Bearer '+MISTRAL_API_KEY
+    },
+    body:JSON.stringify({
+      model:'pixtral-12b-2409',
+      max_tokens:512,
+      messages:[{
+        role:'user',
+        content:[
+          {type:'image_url',image_url:{url:'data:'+mime+';base64,'+base64}},
+          {type:'text',text:'هذه ورقة توزيع Coca-Cola. استخرج فقط الأكواد الرقمية المكونة من 7 أرقام بالضبط (مثل: 3199098، 3807183). تجاهل كل النصوص والأسماء والأرقام الأخرى. أرجع الأكواد فقط مفصولة بفاصلة، بدون أي نص آخر. مثال: 3199098,3807183,3800507'}
+        ]
+      }]
+    })
+  });
+  if(!response.ok){
+    var err=await response.json().catch(function(){return {};});
+    throw new Error('Mistral '+(response.status)+(err.message?': '+err.message:''));
+  }
+  var data=await response.json();
+  var text=data.choices&&data.choices[0]?data.choices[0].message.content:'';
+  console.log('Mistral page '+(pageIdx+1)+':',text);
+  var codes=[];
+  var matches=text.match(/\d{7}/g)||[];
+  matches.forEach(function(m){
+    if((m[0]==='1'||m[0]==='3')&&codes.indexOf(m)===-1)codes.push(m);
+  });
+  if(!codes.length)throw new Error('Mistral: no codes');
+  return codes;
+}
+
+/* Claude Vision OCR */
+async function ocrWithClaude(dataUrl,pageIdx){
+  if(!CLAUDE_API_KEY||CLAUDE_API_KEY.trim()===''){
+    throw new Error('no API key — using Tesseract');
+  }
+  var base64=dataUrl.split(',')[1];
+  var mimeMatch=dataUrl.match(/data:([^;]+);/);
+  var mime=mimeMatch?mimeMatch[1]:'image/jpeg';
+  var response=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':CLAUDE_API_KEY,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',
+      max_tokens:1024,
+      messages:[{
+        role:'user',
+        content:[
+          {type:'image',source:{type:'base64',media_type:mime,data:base64}},
+          {type:'text',text:'\u0647\u0630\u0647 \u0648\u0631\u0642\u0629 \u062a\u0648\u0632\u064a\u0639 Coca-Cola. \u0627\u0633\u062a\u062e\u0631\u062c \u0641\u0642\u0637 \u0627\u0644\u0623\u0643\u0648\u0627\u062f \u0627\u0644\u0631\u0642\u0645\u064a\u0629 \u0627\u0644\u0645\u0643\u0648\u0646\u0629 \u0645\u0646 7 \u0623\u0631\u0642\u0627\u0645 \u0628\u0627\u0644\u0636\u0628\u0637 (\u0645\u062b\u0644: 3199098\u060c 3807183). \u062a\u062c\u0627\u0647\u0644 \u0643\u0644 \u0627\u0644\u0646\u0635\u0648\u0635 \u0648\u0627\u0644\u0623\u0633\u0645\u0627\u0621. \u0623\u0631\u062c\u0639 \u0627\u0644\u0623\u0643\u0648\u0627\u062f \u0641\u0642\u0637 \u0645\u0641\u0635\u0648\u0644\u0629 \u0628\u0641\u0627\u0635\u0644\u0629\u060c \u0628\u062f\u0648\u0646 \u0623\u064a \u0646\u0635 \u0622\u062e\u0631. \u0645\u062b\u0627\u0644: 3199098,3807183,3800507'}
+        ]
+      }]
+    })
+  });
+  if(!response.ok){
+    var err=await response.json().catch(function(){return {};});
+    throw new Error('Claude API '+(response.status)+(err.error?': '+err.error.message:''));
+  }
+  var data=await response.json();
+  var text=data.content&&data.content[0]?data.content[0].text:'';
+  console.log('Claude page '+(pageIdx+1)+':',text);
+  var codes=[];
+  var matches=text.match(/\d{7}/g)||[];
+  matches.forEach(function(m){
+    if((m[0]==='1'||m[0]==='3')&&codes.indexOf(m)===-1)codes.push(m);
+  });
+  if(!codes.length)throw new Error('no codes in response');
+  return codes;
+}
+
+/* Tesseract Fallback */
+async function ocrWithTesseract(dataUrl,pageIdx){
+  if(!ocrWorker){
+    ocrWorker=await Tesseract.createWorker('eng',1,{logger:function(){}});
+    await ocrWorker.setParameters({tessedit_pageseg_mode:'6',tessedit_ocr_engine_mode:'1',preserve_interword_spaces:'1'});
+  }
+  var cv=await preproc(dataUrl);
+  var rs=await ocrWorker.recognize(cv);
+  return extract7(rs.data.text);
+}
+
+function preproc(dataUrl){
+  return new Promise(function(res){
+    var img=new Image();
+    img.onload=function(){
+      var cv=document.createElement('canvas');
+      // تكبير الصورة x2.5 للدقة
+      var sc=2.5;
+      cv.width=img.width*sc;
+      cv.height=img.height*sc;
+      var ctx=cv.getContext('2d');
+
+      // تحسين جودة التكبير
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality='high';
+      ctx.drawImage(img,0,0,cv.width,cv.height);
+
+      // معالجة الصورة: رفع التباين + تحويل لأبيض/أسود
+      var id=ctx.getImageData(0,0,cv.width,cv.height),d=id.data;
+      for(var i=0;i<d.length;i+=4){
+        // تحويل لرمادي
+        var gray=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+        // رفع التباين
+        gray=Math.min(255,Math.max(0,(gray-128)*1.5+128));
+        // threshold محسّن — 160 بدل 145
+        var v=gray>160?255:0;
+        d[i]=d[i+1]=d[i+2]=v;
+        d[i+3]=255;
+      }
+      ctx.putImageData(id,0,0);
+      res(cv);
+    };
+    img.src=dataUrl;
+  });
+}
 function setP(pct,lbl,step){document.getElementById('progPct').textContent=pct+'%';document.getElementById('progLbl').textContent=lbl;document.getElementById('progStep').textContent=step;document.getElementById('progFill').style.width=pct+'%';}
 
 /* ══ RESET DAY ══ */
@@ -1676,6 +1760,71 @@ function navTo(lat,lng){
   window.open(url,'_blank');
 }
 
+/* ══ DUPLICATE MODAL ══ */
+var dupPendingData=null;
+
+function showDupModal(code,oldRec,newData){
+  dupPendingData={code:code,oldRec:oldRec,newData:newData};
+  document.getElementById('dupCodeDisp').textContent=code;
+  // معلومات القديم
+  var oldLines=[];
+  if(oldRec.name)oldLines.push('👤 '+oldRec.name);
+  if(oldRec.phone)oldLines.push('📱 '+oldRec.phone);
+  if(oldRec.latitude)oldLines.push('📍 موقع محفوظ');
+  else oldLines.push('📍 بدون موقع');
+  document.getElementById('dupOldInfo').innerHTML=oldLines.join('<br>')||'بدون بيانات';
+  // معلومات الجديد
+  var newLines=[];
+  if(newData.name)newLines.push('👤 '+newData.name);
+  if(newData.phone)newLines.push('📱 '+newData.phone);
+  if(newData.latitude)newLines.push('📍 موقع جديد ±'+newData.accuracy+'م');
+  else newLines.push('📍 بدون موقع');
+  if(newData.hasPhoto)newLines.push('🖼️ صورة جديدة');
+  document.getElementById('dupNewInfo').innerHTML=newLines.join('<br>')||'بدون بيانات';
+  document.getElementById('dupModal').classList.add('show');
+}
+
+function dupCancel(){
+  document.getElementById('dupModal').classList.remove('show');
+  dupPendingData=null;
+  snk('⏭️ تم الإلغاء — الكود القديم محفوظ كما هو','');
+}
+
+function dupKeepOld(){
+  document.getElementById('dupModal').classList.remove('show');
+  dupPendingData=null;
+  snk('✅ تم الإبقاء على البيانات القديمة','g');
+  // إعادة الشاشة لحالتها
+  var rb=document.getElementById('rb'),sw=document.getElementById('sw'),rbt=document.getElementById('rbt');
+  rb.disabled=false;sw.style.display='none';rbt.textContent='📥 تسجيل الزبون';
+}
+
+async function dupReplaceNew(){
+  document.getElementById('dupModal').classList.remove('show');
+  if(!dupPendingData)return;
+  var code=dupPendingData.code;
+  var newData=dupPendingData.newData;
+  var oldRec=dupPendingData.oldRec;
+  dupPendingData=null;
+  try{
+    await IDB.updateCustomer(oldRec.id,{
+      name:newData.name||null,
+      phone:newData.phone||null,
+      note:newData.note||null,
+      latitude:newData.latitude||null,
+      longitude:newData.longitude||null,
+      accuracy:newData.accuracy||null,
+      updatedAt:new Date().toISOString()
+    });
+    if(newData.photoB64) await IDB.saveImage(oldRec.id,newData.photoB64);
+    snk('✅ تم تحديث بيانات الزبون '+code,'g');
+  }catch(e){
+    snk('❌ فشل التحديث: '+(e.message||e));
+  }
+  var rb=document.getElementById('rb'),sw=document.getElementById('sw'),rbt=document.getElementById('rbt');
+  rb.disabled=false;sw.style.display='none';rbt.textContent='📥 تسجيل الزبون';
+}
+
 /* ══ EDIT CUSTOMER ══ */
 var editCode=null,editNewPhoto=null;
 
@@ -1760,5 +1909,324 @@ async function saveEdit(){
 function openModal(cid){var s=imgCache[cid];if(!s)return;document.getElementById('modalImg').src=s;document.getElementById('imgModal').classList.add('show');}
 function closeModal(){document.getElementById('imgModal').classList.remove('show');}
 </script>
+
+
+<!-- HOME -->
+<div class="screen active" id="home">
+  <div class="blobs"><div class="bl bl1"></div><div class="bl bl2"></div><div class="bl bl3"></div></div>
+  <div class="bubs" id="bubs"></div>
+  <div class="home-status-bar">
+    <div class="home-time" id="clk">9:41</div>
+    <div class="home-icons"><span>▲▲▲</span><span style="font-size:10px;font-weight:700">4G</span><span>🔋</span></div>
+  </div>
+  <div class="home-dark-tog" onclick="toggleDark()">
+    <span id="darkIcon" style="font-size:14px">☀️</span>
+    <div class="tog-track" id="togTrack"><div class="tog-thumb" id="togThumb"></div></div>
+    <span class="tog-lbl" id="togLbl">وضع عادي</span>
+  </div>
+  <div class="home-content">
+    <div class="logo-card">
+      <div class="logo-img">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" alt="Coca-Cola"
+          onerror="this.style.display='none';document.getElementById('lf1').style.display='block'">
+        <div id="lf1" style="font-family:Georgia,serif;font-size:clamp(36px,10vw,52px);font-weight:bold;font-style:italic;background:linear-gradient(135deg,#fff,#fff9c4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;display:none">Coca-Cola</div>
+      </div>
+      <svg class="wave" width="180" height="12" viewBox="0 0 180 12"><path d="M 8 9 Q 36 2 64 7 Q 90 12 116 6 Q 144 2 172 8" stroke="rgba(255,255,255,0.58)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <div class="divrow"><div class="divline"></div><span class="divstars">✦ ✦ ✦</span><div class="divline"></div></div>
+      <div class="sub-tag">Distributor Pro</div>
+    </div>
+  </div>
+  <div class="home-btns">
+    <div class="hdl"></div>
+    <div class="sec-row"><div class="sec-line"></div><span class="sec-txt">القائمة الرئيسية</span><div class="sec-line"></div></div>
+    <button class="btn-red" onclick="goTo('register','left')"><div class="ibx">👤</div>تسجيل الزبائن</button>
+    <button class="btn-out" onclick="goTo('distrib','left')"><div class="ibx">🚚</div>بدء عملية التوزيع</button>
+    <div class="spark-note"><div class="green-dot"></div> تخزين محلي 100% — بدون سحابة ✅</div>
+  </div>
+</div>
+
+<!-- REGISTER -->
+<div class="screen right" id="register">
+  <div class="hdr">
+    <button class="hdr-back" onclick="goTo('home','right')">←</button>
+    <span class="hdr-title">تسجيل زبون جديد</span>
+    <button class="dark-tog" onclick="toggleDark()"><span id="dIcon2">☀️</span></button>
+    <img class="hdr-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" onerror="this.style.display='none'" alt="">
+  </div>
+  <div class="reg-scroll">
+    <div class="fcard">
+      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">🔑 الكود</span><div class="fsec-line"></div></div>
+      <div class="fg">
+        <div class="flbl"><em>🔑</em> الكود الفريد <span class="req">إجباري</span></div>
+        <input class="code-inp" id="codeInp" type="tel" inputmode="numeric" maxlength="7" placeholder="1234567" oninput="onCodeInput(this)">
+        <div id="codeHint" style="font-size:11px;color:#aaa;margin-top:4px;text-align:center">أدخل كوداً فريداً</div>
+      </div>
+      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">📋 بيانات</span><div class="fsec-line"></div></div>
+      <div class="fg"><div class="flbl"><em>🧑</em> الاسم <span class="opt">اختياري</span></div><input class="inp" id="nmInp" type="text" placeholder="اسم الزبون أو المحل"></div>
+      <div class="fg"><div class="flbl"><em>📱</em> الهاتف <span class="opt">اختياري</span></div><div class="phwrap"><span class="phpre">+213</span><input class="inp" id="phInp" type="tel" inputmode="numeric" maxlength="10" placeholder="0xxxxxxxxx" oninput="this.value=this.value.replace(/\D/g,'')"></div></div>
+      <div class="fg">
+        <div class="flbl"><em>🏪</em> صورة الدكان <span class="opt">اختياري</span></div>
+        <div class="photo-up" id="puArea">
+          <input type="file" id="photoFile" accept="image/*" capture="environment" onchange="previewPhoto(this)">
+          <div class="pu-ico">📷</div>
+          <div class="pu-lbl">التقاط صورة — جودة كاملة بدون ضغط</div>
+        </div>
+        <div class="photo-prev" id="pprev"><img id="pimg" src="" alt=""><button class="rm-ph" onclick="removePhoto()">✕</button></div>
+      </div>
+      <div class="fg"><div class="flbl"><em>📝</em> ملاحظة <span class="opt">اختياري</span></div><textarea class="inp" id="ntInp" placeholder="أي ملاحظة..."></textarea></div>
+      <div class="fsec"><div class="fsec-line"></div><span class="fsec-lbl">📍 الموقع</span><div class="fsec-line"></div></div>
+      <div class="fg">
+        <div class="locc" id="lc" onclick="captureGPSNow()" style="cursor:pointer">
+          <div class="locico" id="li">📍</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:var(--text2)">اضغط هنا لتحديد موقعك الآن</div>
+            <div class="locsub" id="ls">سيُحفظ الموقع قبل إدخال البيانات</div>
+          </div>
+          <span style="font-size:11px;font-weight:800;color:#E4002B;background:rgba(228,0,43,.09);border-radius:8px;padding:3px 9px;flex-shrink:0">▶ اضغط</span>
+        </div>
+      </div>
+      <button class="reg-btn" id="rb" onclick="doRegister()"><div class="spinw" id="sw"></div><span id="rbt">📥 تسجيل الزبون</span></button>
+    </div>
+  </div>
+  <div class="sov" id="sovReg">
+    <div class="sov-sc">✅</div><h2>تم التسجيل!</h2><p>تم الحفظ محلياً 💾</p>
+    <div class="sinfo" id="sinfoReg"></div>
+    <button class="sbk" onclick="afterRegOk()">↩ العودة</button>
+  </div>
+</div>
+
+<!-- DISTRIB -->
+<div class="screen right" id="distrib">
+  <div class="hdr">
+    <button class="hdr-back" onclick="goTo('home','right')">←</button>
+    <span class="hdr-title">ورقة التوزيع</span>
+    <button class="dark-tog" onclick="toggleDark()"><span id="dIcon3">☀️</span></button>
+    <img class="hdr-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Coca-Cola_Logo.svg/2560px-Coca-Cola_Logo.svg.png" onerror="this.style.display='none'" alt="">
+  </div>
+  <div class="stats-bar">
+    <div class="stat-box"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">الكل</div></div>
+    <div class="stat-box g"><div class="stat-num" id="stFound">0</div><div class="stat-lbl">موجود</div></div>
+    <div class="stat-box r"><div class="stat-num" id="stMissing">0</div><div class="stat-lbl">غائب</div></div>
+    <div class="stat-box y"><div class="stat-num" id="stPages">0</div><div class="stat-lbl">ورقة</div></div>
+  </div>
+  <div class="dpanel" id="dpanel">
+    <div>
+      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">✏️ إدخال الأكواد</span><div class="sec-hdr-line"></div></div>
+      <div class="manual-main">
+        <div class="mm-lbl">الأكواد السباعية</div>
+        <div class="dot-progress" id="dotProgress">
+          <div class="dot" id="d0"></div><div class="dot" id="d1"></div><div class="dot" id="d2"></div>
+          <div class="dot" id="d3"></div><div class="dot" id="d4"></div><div class="dot" id="d5"></div>
+          <div class="dot" id="d6"></div>
+        </div>
+        <div class="man-row">
+          <input class="man-inp" id="manInp" type="tel" inputmode="numeric" maxlength="7" placeholder="0000000"
+            oninput="onManInput(this)" onkeydown="if(event.key==='Enter')addCode()">
+          <button class="man-add" onclick="addCode()">➕</button>
+        </div>
+        <div class="man-hint" id="manHint">اكتب 7 أرقام — تتحول للأخضر تلقائياً</div>
+        <div class="chips-wrap" id="chipsWrap"></div>
+        <div class="chip-cnt" id="chipCnt" style="display:none"></div>
+        <button class="cmp-btn" id="cmpBtn" onclick="compareAll()" style="display:none;margin-top:10px">
+          <span id="cmpTxt">🔍 مقارنة مع القاعدة المحلية</span>
+        </button>
+      </div>
+    </div>
+    <div id="uploadSec">
+      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">📄 أو ارفع ورقة (OCR)</span><div class="sec-hdr-line"></div></div>
+      <div class="up-area"><input type="file" id="mainFile" accept="image/*" multiple onchange="addPages(this.files)"><div class="up-ico">📄</div><div class="up-lbl">ارفع صورة ورقة التوزيع</div><div class="up-sub">يمكن رفع أكثر من ورقة دفعة واحدة</div></div>
+    </div>
+    <div id="pagesWrap" style="display:none">
+      <div class="sec-hdr"><div class="sec-hdr-line"></div><span class="sec-hdr-lbl">🗂️ الأوراق</span><div class="sec-hdr-line"></div></div>
+      <div class="pg-strip" id="pgStrip">
+        <div class="add-pg-btn"><input type="file" id="addMoreFile" accept="image/*" multiple onchange="addPages(this.files)"><div>➕</div><div class="add-pg-lbl">إضافة</div></div>
+      </div>
+    </div>
+    <button class="proc-btn" id="procBtn" onclick="startOCR()" style="display:none" disabled>
+      <span id="procTxt">🔍 استخراج الأكواد ومقارنتها</span>
+    </button>
+    <div class="prog-wrap" id="progWrap">
+      <div class="prog-row"><span class="prog-lbl" id="progLbl">جارٍ...</span><span class="prog-pct" id="progPct">0%</span></div>
+      <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+      <div class="prog-step" id="progStep"></div>
+    </div>
+    <div class="dpanel-spacer"></div>
+  </div>
+  <div class="fab-row" id="fabRow">
+    <button class="start-fab green" onclick="goToNav()">🗺️ بدء التوزيع</button>
+    <button class="start-fab red" onclick="resetDay()">🔄 يوم جديد</button>
+  </div>
+</div>
+
+<!-- NAV SCREEN -->
+<div class="screen below" id="navscreen" style="overflow:hidden;">
+  <div class="nav-hdr">
+    <button class="nav-hdr-back" onclick="stopGeo();goTo('distrib','right')">←</button>
+    <span class="nav-hdr-title">🗺️ مسار التوزيع</span>
+    <div class="nav-hdr-badge" id="navBadge">0 زبون</div>
+  </div>
+  <!-- Google Maps -->
+  <div class="map-top">
+    <div id="gmap"></div>
+    <!-- مؤشر تحميل المسار -->
+  <div id="routeLoadingBadge" style="display:none;position:absolute;top:8px;right:50%;transform:translateX(50%);background:rgba(0,0,0,.75);backdrop-filter:blur(8px);border-radius:20px;padding:5px 14px;color:#22c55e;font-size:11px;font-weight:800;font-family:Cairo,sans-serif;z-index:10;align-items:center;gap:6px">
+    <span style="animation:spin .8s linear infinite;display:inline-block">⟳</span> جارٍ رسم المسار...
+  </div>
+  <div class="map-ctrl-row">
+    <button class="map-btn green" onclick="openRoute()">🚗 ملاحة كاملة</button>
+    <button class="map-btn" onclick="centerMe()">📍 موقعي</button>
+  </div>
+  </div>
+  <!-- بانر العربة 300م -->
+  <div class="cart-banner" id="cartBanner">
+    <span style="font-size:20px">🛒</span>
+    <div>
+      <div class="cart-banner-txt" id="cartTxt">استخدم العربة!</div>
+      <div class="cart-banner-sub">المسافة أقل من 300 متر — لا تحرك الشاحنة</div>
+    </div>
+  </div>
+  <!-- بانر التوقيت التقديري لليوم -->
+  <div id="etaBanner" style="display:none;background:linear-gradient(135deg,#1a1a2e,#16213e);border-bottom:1px solid rgba(99,102,241,.25);padding:7px 14px;flex-shrink:0;flex-direction:row;align-items:center;gap:10px;">
+    <span style="font-size:18px">📊</span>
+    <div style="flex:1">
+      <div id="etaMain" style="font-size:12px;font-weight:800;color:#818cf8"></div>
+      <div id="etaSub" style="font-size:10px;color:rgba(129,140,248,.7);margin-top:1px"></div>
+    </div>
+    <div id="etaTime" style="font-size:20px;font-weight:900;color:#818cf8;font-family:monospace"></div>
+  </div>
+  <div class="nav-list-wrap"><div id="navList"></div></div>
+</div>
+
+<!-- NOT PAID SCREEN -->
+<div class="screen below" id="notpaidscreen">
+  <div class="hdr" style="background:linear-gradient(135deg,#92400e,#78350f)">
+    <button class="hdr-back" onclick="goTo('navscreen','right')">←</button>
+    <span class="hdr-title">⏳ لم يدفع بعد</span>
+  </div>
+  <div class="np-scroll">
+    <div class="np-card">
+      <div class="np-title">⚠️ تفاصيل الزبون</div>
+      <div class="np-cust-box">
+        <div class="np-code" id="npCode">—</div>
+        <div class="np-name" id="npName">—</div>
+      </div>
+      <div class="np-lbl">⏱️ اختر وقت العودة</div>
+      <div class="time-grid">
+        <div class="t-opt on" onclick="selTime(this,15)"><div class="t-min">15</div><div class="t-lbl">دقيقة</div></div>
+        <div class="t-opt" onclick="selTime(this,30)"><div class="t-min">30</div><div class="t-lbl">دقيقة</div></div>
+        <div class="t-opt" onclick="selTime(this,45)"><div class="t-min">45</div><div class="t-lbl">دقيقة</div></div>
+        <div class="t-opt" onclick="selTime(this,60)"><div class="t-min">1</div><div class="t-lbl">ساعة</div></div>
+        <div class="t-opt" onclick="selTime(this,90)"><div class="t-min">1.5</div><div class="t-lbl">ساعة</div></div>
+        <div class="t-opt" onclick="selTime(this,120)"><div class="t-min">2</div><div class="t-lbl">ساعة</div></div>
+      </div>
+      <div class="np-lbl">أو وقت مخصص (دقائق)</div>
+      <input class="custom-inp" id="customInp" type="number" inputmode="numeric" min="1" max="480" placeholder="مثال: 25">
+      <div class="np-lbl">📝 ملاحظة</div>
+      <textarea class="np-note" id="npNote" placeholder="سبب التأجيل..."></textarea>
+      <button class="np-confirm" onclick="confirmNP()">⏳ تأكيد — سأعود لاحقاً</button>
+    </div>
+  </div>
+</div>
+
+<!-- DUPLICATE CODE MODAL -->
+<div class="edit-modal" id="dupModal">
+  <div class="edit-overlay" onclick="dupCancel()"></div>
+  <div class="edit-sheet">
+    <div class="edit-sheet-hdl"></div>
+    <div class="edit-sheet-hdr">
+      <div class="edit-sheet-title">⚠️ كود مكرر</div>
+      <button class="edit-close" onclick="dupCancel()">✕</button>
+    </div>
+    <div class="edit-body">
+      <div style="background:rgba(245,158,11,.08);border:1.5px solid rgba(245,158,11,.25);border-radius:14px;padding:14px;margin-bottom:16px">
+        <div style="font-size:22px;font-weight:900;color:#f59e0b;font-family:monospace;letter-spacing:3px;margin-bottom:4px" id="dupCodeDisp">—</div>
+        <div style="font-size:12px;color:var(--dtext3)">هذا الكود مسجل مسبقاً في قاعدة البيانات</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+        <div style="background:var(--dbg3);border:1.5px solid var(--dborder2);border-radius:12px;padding:12px">
+          <div style="font-size:10px;font-weight:700;color:var(--dtext3);text-transform:uppercase;margin-bottom:6px">📦 القديم المحفوظ</div>
+          <div style="font-size:12px;color:var(--dtext2)" id="dupOldInfo">—</div>
+        </div>
+        <div style="background:rgba(228,0,43,.05);border:1.5px solid rgba(228,0,43,.2);border-radius:12px;padding:12px">
+          <div style="font-size:10px;font-weight:700;color:#E4002B;text-transform:uppercase;margin-bottom:6px">🆕 الجديد الحالي</div>
+          <div style="font-size:12px;color:var(--dtext2)" id="dupNewInfo">—</div>
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--dtext2);text-align:center;margin-bottom:14px">ماذا تريد أن تفعل؟</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="dupKeepOld()" style="width:100%;height:48px;background:var(--dbg3);border:1.5px solid var(--dborder2);border-radius:13px;font-family:Cairo,sans-serif;font-size:14px;font-weight:800;color:var(--dtext);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+          📦 ابقَ على القديم — لا تغير شيئاً
+        </button>
+        <button onclick="dupReplaceNew()" style="width:100%;height:48px;background:linear-gradient(135deg,#E4002B,#b3001c);border:none;border-radius:13px;font-family:Cairo,sans-serif;font-size:14px;font-weight:800;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+          🔄 استبدل بالجديد — حدّث البيانات
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="edit-modal" id="editModal">
+  <div class="edit-overlay" onclick="closeEdit()"></div>
+  <div class="edit-sheet">
+    <div class="edit-sheet-hdl"></div>
+    <div class="edit-sheet-hdr">
+      <div class="edit-sheet-title">🔧 تعديل بيانات الزبون</div>
+      <button class="edit-close" onclick="closeEdit()">✕</button>
+    </div>
+    <div class="edit-body">
+      <div class="edit-fg">
+        <div class="edit-lbl">🔑 الكود</div>
+        <div id="editCodeDisplay" style="font-size:22px;font-weight:900;font-family:monospace;color:#E4002B;letter-spacing:3px;padding:8px 0"></div>
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">🧑 الاسم</div>
+        <input class="edit-inp" id="editName" type="text" placeholder="اسم الزبون أو المحل">
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">📱 الهاتف</div>
+        <input class="edit-inp" id="editPhone" type="tel" inputmode="numeric" placeholder="0xxxxxxxxx">
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">📝 ملاحظة</div>
+        <textarea class="edit-inp" id="editNote" rows="2" style="resize:none"></textarea>
+      </div>
+      <div class="edit-fg">
+        <div class="edit-lbl">🏪 الصورة</div>
+        <div class="edit-photo-row">
+          <div id="editPhotoThumb"><div class="edit-photo-ph">🏪</div></div>
+          <div class="edit-photo-btn">
+            <input type="file" accept="image/*" capture="environment" onchange="editPhotoChange(this)">
+            <div class="edit-photo-btn-lbl">📷 تغيير الصورة</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px">اضغط للتقاط أو اختيار</div>
+          </div>
+        </div>
+      </div>
+      <button class="edit-save-btn" id="editSaveBtn" onclick="saveEdit()">💾 حفظ التعديلات</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal صورة -->
+<div class="img-modal" id="imgModal" onclick="closeModal()">
+  <img id="modalImg" src="" alt="">
+  <button class="img-modal-close">✕</button>
+</div>
+
+<!-- تنبيه Geofence -->
+<div class="geo-alert" id="geoAlert">
+  <div class="geo-inner">
+    <div class="geo-ico" id="geoIco">⚠️</div>
+    <div class="geo-txt">
+      <div class="geo-title" id="geoTitle">تنبيه!</div>
+      <div class="geo-sub" id="geoSub"></div>
+    </div>
+    <button class="geo-close" onclick="closeGeo()">✕</button>
+  </div>
+</div>
+
+<div class="snk" id="snk"></div>
+
+
 </body>
 </html>
